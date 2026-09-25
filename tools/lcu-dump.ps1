@@ -429,8 +429,10 @@ function Test-AutoRunes([string]$dir) {
     # Ask for the recommended pages directly, with the position as the session writes it and in capitals.
     $position = $me.assignedPosition
     if (-not $position) {
-        $position = (Get-LcuJson "/lol-perks/v1/recommended-pages/position/champion/$champion").data
-        $report.defaultPosition = $position
+        $default = (Get-LcuJson "/lol-perks/v1/recommended-pages/position/champion/$champion").data
+        $report.defaultPosition = $default
+        # Only use the answer if it is a position name, not an error object.
+        $position = if ($default -is [string] -and $default) { $default } else { "NONE" }
     }
 
     $report.recommended = @()
