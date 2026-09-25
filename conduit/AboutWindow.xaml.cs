@@ -36,7 +36,11 @@ namespace Conduit
             Dispatcher.Invoke(() =>
             {
                 QRCodeGenerator qrGenerator = new QRCodeGenerator();
-                QRCodeData qrCodeData = qrGenerator.CreateQrCode("https://remote.mimic.lol/" + Persistence.GetHubCode(), QRCodeGenerator.ECCLevel.Q);
+                // With your own server, the web app is hosted at the same address as Rift.
+                var url = Program.HUB == Persistence.DEFAULT_SERVER
+                    ? "https://remote.mimic.lol/" + Persistence.GetHubCode()
+                    : Program.HUB + "/?code=" + Persistence.GetHubCode();
+                QRCodeData qrCodeData = qrGenerator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q);
                 XamlQRCode qrCode = new XamlQRCode(qrCodeData);
 
                 ConnectionQR.Source = qrCode.GetGraphic(20);

@@ -20,12 +20,38 @@ namespace Conduit
         private static readonly string HUB_TOKEN_PATH = Path.Combine(DATA_DIRECTORY, "token");
         private static readonly string KEYPAIR_PATH = Path.Combine(DATA_DIRECTORY, "keys");
         private static readonly string DEVICES_PATH = Path.Combine(DATA_DIRECTORY, "devices");
+        private static readonly string SERVER_PATH = Path.Combine(DATA_DIRECTORY, "server");
+
+        public const string DEFAULT_SERVER = "https://rift.mimic.lol";
         private static readonly RegistryKey BOOT_KEY = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
 
         static Persistence()
         {
             // Create directory if needed.
             if (!Directory.Exists(DATA_DIRECTORY)) Directory.CreateDirectory(DATA_DIRECTORY);
+        }
+
+        /**
+         * Returns the address of the Rift server to use, without a trailing slash. This is the
+         * contents of the "server" file in the data directory if it holds an http(s) address,
+         * or the shared server otherwise.
+         */
+        public static string GetServerAddress()
+        {
+            try
+            {
+                if (File.Exists(SERVER_PATH))
+                {
+                    var address = File.ReadAllText(SERVER_PATH).Trim().TrimEnd('/');
+                    if (address.StartsWith("https://") || address.StartsWith("http://")) return address;
+                }
+            }
+            catch
+            {
+                // Fall back to the shared server if the file can't be read.
+            }
+
+            return DEFAULT_SERVER;
         }
 
         /**

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Security.Authentication;
 using System.Web;
 using WebSocketSharp;
 
@@ -30,6 +31,12 @@ namespace Conduit
                     + "?token=" + HttpUtility.UrlEncode(Persistence.GetHubToken())
                     + "&publicKey=" + HttpUtility.UrlEncode(CryptoHelpers.ExportPublicKey())
             );
+
+            // Allow TLS 1.2, which most servers require. The library's default may only offer older versions.
+            if (Program.HUB_WS.StartsWith("wss://"))
+            {
+                socket.SslConfiguration.EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls11 | SslProtocols.Tls;
+            }
 
             socket.OnMessage += HandleMessage;
             socket.OnClose += (sender, ev) =>
