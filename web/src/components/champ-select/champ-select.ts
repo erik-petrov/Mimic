@@ -406,8 +406,9 @@ export default class ChampSelect extends Vue {
     }
 
     /**
-     * Asks the client to set up the recommended runes for our champion, like the client's
-     * own auto runes option. The client makes a temporary page and selects it.
+     * Sets up the recommended runes for our champion. First asks the client, like its own auto
+     * runes option. The client builds that page from its own window, which may not happen while
+     * someone uses their phone instead, so if nothing happens Mimic applies the recommendation itself.
      */
     async autoSelectRunes() {
         const champion = this.localChampionId;
@@ -421,15 +422,59 @@ export default class ChampSelect extends Vue {
         this.autoRunesSawFlag = false;
 
         const result = await this.$root.request("/lol-perks/v1/rune-recommender-auto-select", "POST");
-        if (result.status >= 300) {
-            this.finishAutoRunes("The League client refused auto runes (error " + result.status + ").");
-            return;
+        if (!this.autoRunesChampion) return;
+
+        // The client usually answers within a few seconds, if at all.
+        const wait = result.status >= 300 ? 0 : 6000;
+        this.autoRunesTimeout = window.setTimeout(() => this.applyRecommendedRunes(champion), wait);
+    }
+
+    /**
+     * Applies the client's top recommended page for the specified champion, reusing the
+     * temporary recommended page if there is one. Never overwrites the user's own pages.
+     */
+    async applyRecommendedRunes(champion: number) {
+        if (this.autoRunesChampion !== champion) return;
+
+        // The client may have set it up without us seeing the updates.
+        const current = await this.$root.request("/lol-perks/v1/currentpage");
+        if (current.status === 200 && current.content && current.content.isTemporary && current.content.recommendationChampionId === champion) {
+            return this.finishAutoRunes("Runes set: " + current.content.name);
         }
 
-        // The client usually takes a few seconds. Say so if it never picks the request up.
-        this.autoRunesTimeout = window.setTimeout(() => {
-            this.finishAutoRunes("The League client didn't set up runes. Try again with the League window open.");
-        }, 12000);
+        const position = ((this.state && this.state.localPlayer.assignedPosition) || "NONE").toUpperCase();
+        const mapId = this.gameflowState ? this.gameflowState.map.id : 11;
+        const recommended = await this.$root.request(`/lol-perks/v1/recommended-pages/champion/${champion}/position/${position}/map/${mapId}`);
+        if (this.autoRunesChampion !== champion) return;
+
+        const rec = recommended.status === 200 && Array.isArray(recommended.content) ? recommended.content[0] : null;
+        if (!rec || !Array.isArray(rec.perks)) {
+            return this.finishAutoRunes("Couldn't get recommended runes from the League client (error " + recommended.status + ").");
+        }
+
+        const page = {
+            name: this.championName(champion) + " - " + (rec.keystone ? rec.keystone.name : "Recommended"),
+            primaryStyleId: rec.primaryPerkStyleId,
+            subStyleId: rec.secondaryPerkStyleId,
+            selectedPerkIds: rec.perks.map((x: { id: number }) => x.id),
+            isTemporary: true,
+            recommendationChampionId: champion,
+            runeRecommendationId: rec.recommendationId,
+            current: true
+        };
+
+        // Temporary pages don't count towards the page limit, so there is always room for one.
+        const existing = this.runePages.filter(x => x.isTemporary)[0];
+        const saved = existing
+            ? await this.$root.request("/lol-perks/v1/pages/" + existing.id, "PUT", JSON.stringify(Object.assign({}, existing, page)))
+            : await this.$root.request("/lol-perks/v1/pages", "POST", JSON.stringify(page));
+        if (saved.status >= 300) {
+            return this.finishAutoRunes("Couldn't set runes: the League client refused the page (error " + saved.status + ").");
+        }
+
+        const id = existing ? existing.id : saved.content && saved.content.id;
+        if (id) await this.$root.request("/lol-perks/v1/currentpage", "PUT", "" + id);
+        this.finishAutoRunes("Runes set: " + page.name);
     }
 
     /**
