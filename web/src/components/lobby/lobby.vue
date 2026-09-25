@@ -5,6 +5,7 @@
             <div class="queue-overlay"></div>
 
             <lobby-invites :state="state" :show="showingInvites" @close="showingInvites = false"></lobby-invites>
+            <autopick-setup :show="showingAutopick" @close="showingAutopick = false"></autopick-setup>
 
             <!-- Role picker needs to be here because of z-index. -->
             <role-picker
@@ -46,6 +47,21 @@
             </div>
 
             <div class="bottom">
+                <!-- Autopick. Above the queue overlay, so it can be switched on while in queue. -->
+                <div class="autopick" v-if="$root.autopick">
+                    <div class="autopick-toggle" :class="{ on: $root.autopick.enabled }" @click="toggleAutopick()">
+                        <div class="text">
+                            <span class="label">Autopick</span>
+                            <span class="detail">{{ autopickDetail }}</span>
+                        </div>
+                        <div class="switch"><div class="knob"></div></div>
+                    </div>
+                    <lcu-button class="autopick-setup-button" @click="showingAutopick = true">Setup Autopick</lcu-button>
+                </div>
+                <div class="autopick-unavailable" v-else-if="$root.autopick === false">
+                    Autopick needs the newest Mimic Conduit on your PC.
+                </div>
+
                 <!-- We can join matchmaking if we can start, and we are the owner -->
                 <lcu-button class="queue-button" @click="joinMatchmaking()" :disabled="!(state.canStartActivity && queueDodgeTime === -1 && state.localMember.isLeader)">
                     <template v-if="queueDodgeTime === -1">Find Match</template>
@@ -169,6 +185,74 @@
             padding-top 2px
             font-size 40px
             margin-right 10px
+
+    .autopick
+        position relative
+        z-index 101
+
+    .autopick-toggle
+        display flex
+        align-items center
+        justify-content space-between
+        margin 0 20px 10px 20px
+        padding 15px 25px
+        background-color rgba(30, 35, 40, 0.85)
+        border 2px solid #785a28
+
+        .text
+            display flex
+            flex-direction column
+
+        .label
+            color #f0e6d2
+            font-family "LoL Display"
+            font-weight 700
+            font-size 45px
+            text-transform uppercase
+            letter-spacing 0.075em
+
+        .detail
+            color #a09b8c
+            font-size 32px
+
+        .switch
+            position relative
+            width 130px
+            height 64px
+            border-radius 32px
+            background-color #1e2328
+            border 2px solid #785a28
+            transition 0.2s ease
+
+        .knob
+            position absolute
+            top 6px
+            left 6px
+            width 48px
+            height 48px
+            border-radius 50%
+            background-color #a09b8c
+            transition 0.2s ease
+
+        &.on
+            border-color #c89c3c
+
+            .switch
+                background-color #785a28
+                border-color #c89c3c
+
+            .knob
+                left 72px
+                background-color #f0e6d2
+
+    .autopick-setup-button
+        margin 0 10px 10px 14px
+
+    .autopick-unavailable
+        margin 0 20px 10px 20px
+        color #a09b8c
+        font-size 32px
+        text-align center
 
     .queue-button
         margin 10px

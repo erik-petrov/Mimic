@@ -7,6 +7,8 @@ import LobbyMemberComponent from "./lobby-member.vue";
 import RolePicker from "./role-picker.vue";
 import InviteOverlay from "./invite-overlay.vue";
 import CreateLobby from "./create-lobby.vue";
+import AutopickSetup from "../autopick/autopick-setup.vue";
+import { hasAutopickSetup, setAutopickEnabled } from "../autopick/autopick-state";
 import { QueueState } from "../queue/queue";
 
 /**
@@ -57,7 +59,8 @@ export interface LobbyState {
         lobbyMember: LobbyMemberComponent,
         rolePicker: RolePicker,
         lobbyInvites: InviteOverlay,
-        createLobby: CreateLobby
+        createLobby: CreateLobby,
+        autopickSetup: AutopickSetup
     }
 })
 export default class Lobby extends Vue {
@@ -73,6 +76,7 @@ export default class Lobby extends Vue {
     pickingFirstRole = false;
 
     showingInvites = false;
+    showingAutopick = false;
     creatingLobby = false;
 
     mounted() {
@@ -255,5 +259,32 @@ export default class Lobby extends Vue {
      */
     formatSeconds(secs: number) {
         return (Math.floor(secs / 60)) + ":" + ("00" + (Math.round(secs) % 60).toFixed(0)).slice(-2);
+    }
+
+    /**
+     * @returns the line under the autopick switch
+     */
+    get autopickDetail(): string {
+        const autopick = this.$root.autopick;
+        if (!autopick) return "";
+        if (!hasAutopickSetup(autopick.roles)) return "Nothing set up yet";
+        if (!autopick.enabled) return "Off";
+        return autopick.lockInDelay ? "On for your next game, locks in after " + autopick.lockInDelay + "s" : "On for your next game";
+    }
+
+    /**
+     * Switches autopick on or off. Opens the setup instead if nothing is set up yet.
+     */
+    async toggleAutopick() {
+        const autopick = this.$root.autopick;
+        if (!autopick) return;
+
+        if (!autopick.enabled && !hasAutopickSetup(autopick.roles)) {
+            this.showingAutopick = true;
+            return;
+        }
+
+        const result = await setAutopickEnabled(this.$root, !autopick.enabled);
+        if (result.status !== 200) this.$root.showNotification("Could not switch autopick (error " + result.status + ").");
     }
 }

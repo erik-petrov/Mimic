@@ -2,9 +2,12 @@ import Vue from "vue";
 import { Component, Prop } from "vue-property-decorator";
 import { ChampSelectAction, ChampSelectState, default as ChampSelect } from "./champ-select";
 import Root from "../root/root";
-import { championIcon } from "@/constants";
+import ChampionGrid from "../common/champion-grid.vue";
+import { GridEntry } from "../common/champion-grid";
 
-@Component
+@Component({
+    components: { championGrid: ChampionGrid }
+})
 export default class ChampionPicker extends Vue {
     $root: Root;
     $parent: ChampSelect;
@@ -21,8 +24,6 @@ export default class ChampionPicker extends Vue {
     // List of champions that the current user can ban. Includes already banned champions.
     bannableChampions: number[] = [];
 
-    searchTerm = "";
-
     created() {
         // Observe the list of pickable and bannable champions. These are kept as-is and only
         // filtered and sorted when shown, so that names loading later can never drop champions.
@@ -35,19 +36,16 @@ export default class ChampionPicker extends Vue {
         });
     }
 
-    mounted() {
-        (<any>this.$refs.searchInput).addEventListener("focus", () => {
-            document.body.classList.add("in-input");
-        });
-
-        (<any>this.$refs.searchInput).addEventListener("blur", () => {
-            document.body.classList.remove("in-input");
-        });
-    }
-
     destroyed() {
         this.$root.unobserve("/lol-champ-select/v1/pickable-champion-ids");
         this.$root.unobserve("/lol-champ-select/v1/bannable-champion-ids");
+    }
+
+    /**
+     * @returns the selectable champions with their names, for the grid
+     */
+    get gridChampions(): GridEntry[] {
+        return this.selectableChampions.map(id => ({ id, name: this.championName(id) }));
     }
 
     /**
@@ -60,13 +58,8 @@ export default class ChampionPicker extends Vue {
         const allActions = (<ChampSelectAction[]>[]).concat(...this.state.actions);
         const bannedChamps = allActions.filter(x => x.type === "ban" && x.completed).map(x => x.championId);
         // -1 is the "no ban" entry, which is not a champion.
-        const selectable = (isCurrentlyBanning ? this.bannableChampions : this.pickableChampions)
+        return (isCurrentlyBanning ? this.bannableChampions : this.pickableChampions)
             .filter(x => x > 0 && bannedChamps.indexOf(x) === -1);
-
-        const search = this.searchTerm.toLowerCase();
-        return selectable
-            .filter(x => this.championName(x).toLowerCase().includes(search))
-            .sort((a, b) => this.championName(a).localeCompare(this.championName(b)));
     }
 
     /**
@@ -157,13 +150,6 @@ export default class ChampionPicker extends Vue {
         completed: true
     }));
         this.$emit("close");
-    }
-
-    /**
-     * @returns the path to the icon of the specified champion
-     */
-    getChampionImage(id: number) {
-        return championIcon(id);
     }
 
     /**

@@ -16,6 +16,26 @@ export async function loadDdragon(): Promise<string> {
     });
 }
 
+const staticData: { [filename: string]: Promise<any> } = {};
+
+/**
+ * Loads the specified json file (like runesReforged.json) from the latest ddragon static data.
+ * Each file is only downloaded once.
+ */
+export function loadStaticData(filename: string): Promise<any> {
+    if (staticData[filename]) return staticData[filename];
+
+    return staticData[filename] = loadDdragon().then(version => new Promise(resolve => {
+        const req = new XMLHttpRequest();
+        req.onreadystatechange = () => {
+            if (req.status !== 200 || !req.responseText || req.readyState !== 4) return;
+            resolve(JSON.parse(req.responseText));
+        };
+        req.open("GET", `https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/${filename}`, true);
+        req.send();
+    }));
+}
+
 const CDRAGON_GAME_DATA = "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/";
 
 /**
