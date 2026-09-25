@@ -176,6 +176,13 @@ export default class RiftSocket {
 // like wss://rift.example.com, or a path like "/" for Rift behind the server hosting this page.
 const RIFT_URL = process.env.VUE_APP_RIFT_URL || "wss://rift.mimic.lol";
 
+/**
+ * @returns the host of the Rift server this app connects to, for showing in errors
+ */
+export function riftHost(): string {
+    return new URL(riftMobileUrl("0")).host;
+}
+
 // Builds the address of Rift's websocket for phones, for the specified Conduit code.
 function riftMobileUrl(code: string): string {
     const url = new URL(RIFT_URL.replace(/\/+$/, "") + "/mobile", location.href);

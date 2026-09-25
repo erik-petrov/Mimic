@@ -17,7 +17,8 @@
 
             <p style="margin-bottom: 40px">The computer belonging to the code you entered could not be found. Make sure
                 that both Conduit and League are running and
-                that you entered the code correctly.</p>
+                that you entered the code correctly.<br><br>
+                <small>Server: {{ riftHost }}</small></p>
 
             <lcu-button class="button" @click="connect">Try Again</lcu-button>
             <lcu-button class="button" @click="$emit('reset')">Cancel</lcu-button>
@@ -61,7 +62,7 @@
 </template>
 
 <script lang="ts">
-    import RiftSocket, { RiftSocketState } from "./rift-socket";
+    import RiftSocket, { riftHost, RiftSocketState } from "./rift-socket";
     import CodeEntry from "./code-entry.vue";
     import { Component, Prop, Vue } from "vue-property-decorator";
 
@@ -98,6 +99,10 @@
         connect() {
             if (localStorage) localStorage.setItem("conduitID", this.code);
             this.$emit("connect", this.code);
+        }
+
+        get riftHost() {
+            return riftHost();
         }
 
         get didFailPubkey() {

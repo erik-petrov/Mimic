@@ -214,11 +214,17 @@ export default class WebSocketManager {
 
                 // Look up public key, send null if it doesn't exist.
                 const pubkey = await db.lookup(code);
-                if (!pubkey) return done(null);
+                if (!pubkey) {
+                    console.log("[-] A phone asked for code " + code + ", which was never registered with this Rift.");
+                    return done(null);
+                }
 
                 // Look up the conduit connection, send null if conduit is not connected.
                 const conduit = this.conduitConnections.get(code);
-                if (!conduit) return done(null);
+                if (!conduit) {
+                    console.log("[-] A phone asked for code " + code + ", but that Conduit is not connected right now.");
+                    return done(null);
+                }
 
                 // Generate a random connection ID.
                 const connectionID = uuid.v4();
