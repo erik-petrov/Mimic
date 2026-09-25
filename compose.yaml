@@ -1,0 +1,45 @@
+# Hosts the Mimic web app.
+#
+#   docker compose up -d --build
+#       Serves the app on port 8080 (or MIMIC_PORT). Point your own reverse proxy at it.
+#
+#   docker compose --profile caddy up -d --build
+#       Also runs Caddy on ports 80 and 443, which gets an HTTPS certificate for
+#       MIMIC_DOMAIN automatically. Use this if you don't already have a reverse proxy.
+#
+# Settings go in a .env file next to this one, e.g.:
+#   MIMIC_DOMAIN=mimic.example.com
+
+services:
+  web:
+    build: ./web
+    image: mimic-web
+    restart: unless-stopped
+    ports:
+      - "${MIMIC_PORT:-8080}:80"
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MIMIC_DOMAIN: ${MIMIC_DOMAIN:-}
+    # Stop with a clear message instead of a Caddyfile error when the domain is missing.
+    command:
+      - sh
+      - -c
+      - '[ -n "$$MIMIC_DOMAIN" ] || { echo "Set MIMIC_DOMAIN in the .env file, e.g. MIMIC_DOMAIN=mimic.example.com"; exit 1; }; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

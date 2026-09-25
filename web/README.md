@@ -16,14 +16,22 @@ Building is managed through vue-cli. It takes care of automatically optimizing, 
 
 ## Hosting with Docker
 
-The `Dockerfile` builds the app and serves it with nginx on port 80:
+`compose.yaml` in the repository root builds the app and serves it with nginx. From the repository root:
 
 ```
-docker build -t mimic-web ./web
-docker run -d --name mimic-web --restart unless-stopped -p 8080:80 mimic-web
+docker compose up -d --build
 ```
 
-Serve it over HTTPS through a reverse proxy, at the root of a (sub)domain. Browsers only allow the app's encryption on secure pages, and the build loads its files from `/`. Then open `https://your.domain/?code=123456` with the code from Conduit.
+This serves the app on port 8080 (set `MIMIC_PORT` to change it). The app must be served over HTTPS, at the root of a (sub)domain: browsers only allow its encryption on secure pages, and the build loads its files from `/`. Point your reverse proxy at port 8080, or let the included Caddy handle HTTPS:
+
+```
+echo MIMIC_DOMAIN=mimic.example.com > .env
+docker compose --profile caddy up -d --build
+```
+
+Caddy listens on ports 80 and 443 and gets a certificate for the domain automatically, so the domain must point at the server and those ports must be reachable. Then open `https://mimic.example.com/?code=123456` with the code from Conduit.
+
+To update, pull the latest code and run the same `up` command again.
 
 ## License
 
