@@ -174,7 +174,7 @@ export default class Root extends Vue {
         }
 
         if (data[0] === MobileOpcode.VERSION_RESPONSE) {
-            this.showNotification("Connected to " + data[2]);
+            this.showNotification("Connected to " + data[2] + " (build " + process.env.VUE_APP_BUILD_TIME + ")");
             this.setPeerVersion(<string>data[1]);
         }
     };

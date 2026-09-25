@@ -1,4 +1,7 @@
 
+// When this build was made (UTC), shown when connecting so it's easy to tell which version a phone runs.
+process.env.VUE_APP_BUILD_TIME = new Date().toISOString().slice(0, 16).replace("T", " ");
+
 module.exports = {
     pwa: {
         name: "Mimic",
