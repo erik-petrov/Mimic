@@ -411,7 +411,11 @@ export default class ChampSelect extends Vue {
      */
     async autoSelectRunes() {
         const champion = this.localChampionId;
-        if (!champion || this.autoRunesChampion) return;
+        if (this.autoRunesChampion) return;
+        if (!champion) {
+            this.$root.showNotification("Pick or hover a champion first, then tap the wand again.");
+            return;
+        }
 
         this.autoRunesChampion = champion;
         this.autoRunesSawFlag = false;
