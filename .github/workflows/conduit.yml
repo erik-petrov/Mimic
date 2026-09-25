@@ -1,0 +1,29 @@
+# Builds Conduit on Windows and publishes Conduit.exe as a downloadable artifact.
+name: Build Conduit
+
+on:
+  push:
+    paths:
+      - "conduit/**"
+      - ".github/workflows/conduit.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - uses: nuget/setup-nuget@v2
+
+      - name: Restore packages
+        run: nuget restore conduit/Conduit.sln
+
+      - name: Build
+        run: msbuild conduit/Conduit.sln /p:Configuration=Release /m
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Conduit
+          path: conduit/bin/Release/Conduit.exe
+          if-no-files-found: error
