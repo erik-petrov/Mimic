@@ -151,12 +151,19 @@ export default class RuneEditor extends Vue {
      * Creates a new rune page and makes it the current selected page.
      */
     async addPage() {
-        const rsp: RunePage = (await this.$root.request("/lol-perks/v1/pages", "POST", JSON.stringify({
+        const result = await this.$root.request("/lol-perks/v1/pages", "POST", JSON.stringify({
             name: "Rune Page " + (this.$parent.runePages.length + 1),
             primaryStyleId: this.runes[0].id,
             subStyleId: this.runes[1].id,
             selectedPerkIds: [0, 0, 0, 0, 0, 0, 0, 0, 0]
-        }))).content;
+        }));
+
+        // The client refuses new pages when the page limit is reached.
+        const rsp: RunePage = result.content;
+        if (result.status !== 200 || !rsp || !rsp.id) {
+            alert("Could not create a rune page. You may have reached your rune page limit.");
+            return;
+        }
 
         this.$parent.runePages.push(rsp);
         this.$parent.runePages.forEach(x => x.isActive = x === rsp);
