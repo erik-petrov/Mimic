@@ -1,3 +1,5 @@
 .idea
 
 *.iml
+# Output of tools/lcu-dump.ps1, can contain personal account data
+lcu-dump-*/
