@@ -38,16 +38,16 @@
 
                 <span class="section-header">STAT MODS</span>
                 <div class="tree-runes">
-                    <!-- For every tree in the stats. IDs are hardcoded since they are not in the json. -->
+                    <!-- For every row of stat shards. IDs are hardcoded since they are not in the json. -->
                     <div
-                        v-for="(opts, idx) in [[5008, 5005, 5007], [5008, 5002, 5003], [5001, 5002, 5003]]"
+                        v-for="(opts, idx) in statRows"
                         class="slot">
                         <div
                             v-for="option in opts"
                             class="rune stat"
                             :class="currentPage.selectedPerkIds[6 + idx] === option && 'selected'"
                             @click="selectStatRune(idx, option)"
-                            :style="'background-image: url(http://stelar7.no/cdragon/latest/perks/' + option + '.png)'">
+                            :style="getStatIconStyle(option)">
                             <span style="padding-top: 180px">{{ getStatDescription(option) }}</span>
                         </div>
                     </div>

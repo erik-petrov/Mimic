@@ -2,6 +2,7 @@ import Vue from "vue";
 import { Component, Prop } from "vue-property-decorator";
 import { default as ChampSelect, RunePage } from "./champ-select";
 import Root from "../root/root";
+import { gameDataAsset } from "@/constants";
 
 interface RuneSlot {
     runes: {
@@ -14,13 +15,18 @@ interface RuneTree {
     slots: RuneSlot[];
 }
 
+// The three rows of stat shards (offense, flex, defense), as the client lists them.
+// They are not in runesReforged.json, so they are listed here.
+export const STAT_ROWS = [[5008, 5005, 5007], [5008, 5010, 5001], [5011, 5013, 5001]];
+
 const STAT_DESCRIPTIONS: { [key: number]: string } = {
     5008: "AP/AD",
     5005: "ATKSPD",
-    5007: "CDR",
-    5002: "ARMOR",
-    5003: "MR",
-    5001: "HP"
+    5007: "HASTE",
+    5010: "MS",
+    5001: "HP/LVL",
+    5011: "HP",
+    5013: "TENACITY"
 };
 
 @Component({})
@@ -34,7 +40,20 @@ export default class RuneEditor extends Vue {
     runes: RuneTree[] = [];
     secondaryIndex = 0;
 
+    // Icon paths of every perk, from the client. Used for the stat shards.
+    perkIcons: { [id: number]: string } = {};
+
+    readonly statRows = STAT_ROWS;
+
     async created() {
+        this.$root.request("/lol-perks/v1/perks").then(result => {
+            if (result.status !== 200 || !Array.isArray(result.content)) return;
+
+            const icons: { [id: number]: string } = {};
+            result.content.forEach((x: { id: number, iconPath: string }) => icons[x.id] = x.iconPath);
+            this.perkIcons = icons;
+        });
+
         this.runes = await this.$parent.loadStatic("runesReforged.json");
     }
 
@@ -135,7 +154,7 @@ export default class RuneEditor extends Vue {
         const rsp: RunePage = (await this.$root.request("/lol-perks/v1/pages", "POST", JSON.stringify({
             name: "Rune Page " + (this.$parent.runePages.length + 1),
             primaryStyleId: this.runes[0].id,
-            secondaryStyleId: this.runes[1].id,
+            subStyleId: this.runes[1].id,
             selectedPerkIds: [0, 0, 0, 0, 0, 0, 0, 0, 0]
         }))).content;
 
@@ -170,6 +189,14 @@ export default class RuneEditor extends Vue {
      */
     getRuneIconStyle(runeOrStyle: { icon: string }) {
         return `background-image: url(https://ddragon.leagueoflegends.com/cdn/img/${runeOrStyle.icon})`;
+    }
+
+    /**
+     * @returns the style that shows the icon of the specified stat shard
+     */
+    getStatIconStyle(id: number) {
+        const path = this.perkIcons[id];
+        return path ? `background-image: url(${gameDataAsset(path)})` : "";
     }
 
     /**
