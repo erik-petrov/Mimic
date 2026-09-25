@@ -5,7 +5,7 @@
             <div class="texts">
                 <span>
                     <i v-if="member.isLeader" class="ion-ribbon-b"></i>
-                    {{ member.summoner.displayName }}
+                    {{ name }}
                 </span>
 
                 <!-- Positions subtitle. Only shown for other players. -->
@@ -40,7 +40,7 @@
     import Vue from "vue";
     import { Component, Prop } from "vue-property-decorator";
     import { LobbyMember } from "./lobby";
-    import { POSITION_NAMES, roleImage as constantRoleImage } from "../../constants";
+    import { playerName, POSITION_NAMES, roleImage as constantRoleImage } from "../../constants";
     import Root from "../root/root";
 
     @Component
@@ -55,6 +55,10 @@
 
         @Prop()
         showModeration: boolean;
+
+        get name(): string {
+            return playerName(this.member.summoner);
+        }
 
         get summonerIcon(): string {
             return `https://ddragon.leagueoflegends.com/cdn/${this.$root.ddragonVersion}/img/profileicon/${this.member.summoner.profileIconId}.png`;

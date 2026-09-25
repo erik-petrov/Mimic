@@ -1,7 +1,7 @@
 import Vue from "vue";
 import Component from "vue-class-component";
 import Root, { Result } from "../root/root";
-import { mapBackground, Role } from "../../constants";
+import { mapBackground, playerName, Role } from "../../constants";
 
 import LobbyMemberComponent from "./lobby-member.vue";
 import RolePicker from "./role-picker.vue";
@@ -15,7 +15,7 @@ import { QueueState } from "../queue/queue";
  * of the original payload.
  */
 export interface LobbyMember {
-    summoner: { displayName: string, profileIconId: number };
+    summoner: { displayName: string, gameName?: string, profileIconId: number };
     allowedInviteOthers: boolean;
     summonerId: number;
     isLeader: boolean;
@@ -31,7 +31,8 @@ export interface InvitationMetadata {
     id: string;
     state: "Pending" | "Declined" | "Accepted" | "Kicked";
     toSummonerId: number;
-    toSummoner: { displayName: string }; // Loaded manually.
+    toSummonerName: string;
+    toSummoner: { displayName: string, gameName?: string }; // Loaded manually.
 }
 
 /**
@@ -205,7 +206,7 @@ export default class Lobby extends Vue {
      * Promotes the specified member to lobby owner, after prompting.
      */
     promoteMember(member: LobbyMember) {
-        if (confirm("Promote " + member.summoner.displayName + " to lobby owner?")) {
+        if (confirm("Promote " + playerName(member.summoner) + " to lobby owner?")) {
             this.$root.request("/lol-lobby/v2/lobby/members/" + member.summonerId + "/promote", "POST");
         }
     }
@@ -221,7 +222,7 @@ export default class Lobby extends Vue {
      * Kicks the specified member after confirming the users intent.
      */
     kickMember(member: LobbyMember) {
-        if (confirm("Kick " + member.summoner.displayName + " from the lobby?")) {
+        if (confirm("Kick " + playerName(member.summoner) + " from the lobby?")) {
             this.$root.request("/lol-lobby/v2/lobby/members/" + member.summonerId + "/kick", "POST");
         }
     }

@@ -1,12 +1,14 @@
 import Vue from "vue";
 import Root from "../root/root";
 import { Component } from "vue-property-decorator";
+import { playerName } from "@/constants";
 
 interface Invite {
     invitationId: string;
     canAcceptInvitation: boolean;
     fromSummonerId: number;
-    fromSummoner: { displayName: string, profileIconId: number }; // added by us
+    fromSummonerName: string;
+    fromSummoner: { displayName: string, gameName?: string, profileIconId: number }; // added by us
     queueName: string; // added by us
     mapName: string; // added by us
     gameConfig: { mapId: number, queueId: number };
@@ -77,6 +79,13 @@ export default class Invites extends Vue {
      */
     getInviteDetails(invite: Invite): string {
         return (invite.queueName || "Unknown Queue") + " - " + (invite.mapName || "Unknown Map");
+    }
+
+    /**
+     * @returns the name of the player who sent the invite
+     */
+    inviterName(invite: Invite): string {
+        return playerName(invite.fromSummoner) || invite.fromSummonerName || "";
     }
 
     /**

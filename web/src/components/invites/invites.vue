@@ -7,7 +7,7 @@
                 <img :src="getSummonerIcon(invite)">
 
                 <div class="info">
-                    <span class="name">{{ invite.fromSummoner.displayName }}</span>
+                    <span class="name">{{ inviterName(invite) }}</span>
                     <span class="details">{{ getInviteDetails(invite) }}</span>
                 </div>
 
