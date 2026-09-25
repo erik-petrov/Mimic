@@ -34,11 +34,12 @@ export default class RiftSocket {
         const iv = new Uint8Array(16);
         window.crypto.getRandomValues(iv);
 
-        // Encrypt using AES-CBC.
+        // Encrypt using AES-CBC. The text is encoded as UTF-8, which is what Conduit decodes,
+        // so names in any language (like rune page names) arrive intact.
         const encryptedBuffer = await (window.crypto.subtle || window.crypto.webkitSubtle).encrypt({
             name: "AES-CBC",
             iv
-        }, this.key!, stringToBuffer(contents));
+        }, this.key!, new TextEncoder().encode(contents));
 
         this.socket.send(JSON.stringify([
             RiftOpcode.SEND, bufferToBase64(iv.buffer) + ":" + bufferToBase64(encryptedBuffer)
