@@ -12,6 +12,7 @@ import RuneEditor from "./rune-editor.vue";
 import Bench from "./bench.vue";
 import SkinPicker from "./skin-picker.vue";
 import SwapPrompt from "./swap-prompt.vue";
+import RuneRecommendations from "./rune-recommendations.vue";
 
 import MagicBackground from "../../static/magic-background.jpg";
 
@@ -151,7 +152,8 @@ export interface SkinItem {
         runeEditor: RuneEditor,
         bench: Bench,
         skinPicker: SkinPicker,
-        swapPrompt: SwapPrompt
+        swapPrompt: SwapPrompt,
+        runeRecommendations: RuneRecommendations
     }
 })
 export default class ChampSelect extends Vue {
@@ -185,10 +187,8 @@ export default class ChampSelect extends Vue {
     // Information for the rune editor.
     showingRuneOverlay = false;
 
-    // Champion we asked the client to set up recommended runes for, or 0 when not waiting.
-    autoRunesChampion = 0;
-    autoRunesSawFlag = false;
-    autoRunesTimeout = -1;
+    // Information for the list of recommended rune pages.
+    showingRecommendations = false;
 
     // Information for the reroll bench.
     showingBench = false;
@@ -221,25 +221,6 @@ export default class ChampSelect extends Vue {
             // Update the isActive param if needed.
             if (this.currentRunePage) {
                 this.runePages.forEach(x => x.isActive = x.id === this.currentRunePage!.id);
-            }
-
-            // Auto runes are done once the client selects its recommended page for our champion.
-            const page = this.currentRunePage;
-            if (page && page.isTemporary && this.autoRunesChampion && page.recommendationChampionId === this.autoRunesChampion) {
-                this.finishAutoRunes("Runes set: " + page.name);
-            }
-        });
-
-        // The client raises this flag while it works on an auto runes request, and lowers it
-        // when done. This also catches a request that leaves the current page unchanged.
-        this.$root.observe("/lol-perks/v1/rune-recommender-auto-select", response => {
-            if (response.status !== 200 || !this.autoRunesChampion) return;
-
-            if (response.content === true) {
-                this.autoRunesSawFlag = true;
-            } else if (this.autoRunesSawFlag) {
-                const page = this.currentRunePage;
-                this.finishAutoRunes(page ? "Runes set: " + page.name : "Runes set.");
             }
         });
     }
@@ -406,87 +387,15 @@ export default class ChampSelect extends Vue {
     }
 
     /**
-     * Sets up the recommended runes for our champion. First asks the client, like its own auto
-     * runes option. The client builds that page from its own window, which may not happen while
-     * someone uses their phone instead, so if nothing happens Mimic applies the recommendation itself.
+     * Opens the list of recommended rune pages for our champion.
      */
-    async autoSelectRunes() {
-        const champion = this.localChampionId;
-        if (this.autoRunesChampion) return;
-        if (!champion) {
+    openRecommendations() {
+        if (!this.localChampionId) {
             this.$root.showNotification("Pick or hover a champion first, then tap the wand again.");
             return;
         }
 
-        this.autoRunesChampion = champion;
-        this.autoRunesSawFlag = false;
-
-        const result = await this.$root.request("/lol-perks/v1/rune-recommender-auto-select", "POST");
-        if (!this.autoRunesChampion) return;
-
-        // The client usually answers within a few seconds, if at all.
-        const wait = result.status >= 300 ? 0 : 6000;
-        this.autoRunesTimeout = window.setTimeout(() => this.applyRecommendedRunes(champion), wait);
-    }
-
-    /**
-     * Applies the client's top recommended page for the specified champion, reusing the
-     * temporary recommended page if there is one. Never overwrites the user's own pages.
-     */
-    async applyRecommendedRunes(champion: number) {
-        if (this.autoRunesChampion !== champion) return;
-
-        // The client may have set it up without us seeing the updates.
-        const current = await this.$root.request("/lol-perks/v1/currentpage");
-        if (current.status === 200 && current.content && current.content.isTemporary && current.content.recommendationChampionId === champion) {
-            return this.finishAutoRunes("Runes set: " + current.content.name);
-        }
-
-        const position = ((this.state && this.state.localPlayer.assignedPosition) || "NONE").toUpperCase();
-        const mapId = this.gameflowState ? this.gameflowState.map.id : 11;
-        const recommended = await this.$root.request(`/lol-perks/v1/recommended-pages/champion/${champion}/position/${position}/map/${mapId}`);
-        if (this.autoRunesChampion !== champion) return;
-
-        const rec = recommended.status === 200 && Array.isArray(recommended.content) ? recommended.content[0] : null;
-        if (!rec || !Array.isArray(rec.perks)) {
-            return this.finishAutoRunes("Couldn't get recommended runes from the League client (error " + recommended.status + ").");
-        }
-
-        const page = {
-            name: this.championName(champion) + " - " + (rec.keystone ? rec.keystone.name : "Recommended"),
-            primaryStyleId: rec.primaryPerkStyleId,
-            subStyleId: rec.secondaryPerkStyleId,
-            selectedPerkIds: rec.perks.map((x: { id: number }) => x.id),
-            isTemporary: true,
-            recommendationChampionId: champion,
-            runeRecommendationId: rec.recommendationId,
-            current: true
-        };
-
-        // Temporary pages don't count towards the page limit, so there is always room for one.
-        const existing = this.runePages.filter(x => x.isTemporary)[0];
-        const saved = existing
-            ? await this.$root.request("/lol-perks/v1/pages/" + existing.id, "PUT", JSON.stringify(Object.assign({}, existing, page)))
-            : await this.$root.request("/lol-perks/v1/pages", "POST", JSON.stringify(page));
-        if (saved.status >= 300) {
-            return this.finishAutoRunes("Couldn't set runes: the League client refused the page (error " + saved.status + ").");
-        }
-
-        const id = existing ? existing.id : saved.content && saved.content.id;
-        if (id) await this.$root.request("/lol-perks/v1/currentpage", "PUT", "" + id);
-        this.finishAutoRunes("Runes set: " + page.name);
-    }
-
-    /**
-     * Stops waiting for auto runes and tells the user how it went.
-     */
-    finishAutoRunes(message: string) {
-        if (!this.autoRunesChampion) return;
-
-        this.autoRunesChampion = 0;
-        this.autoRunesSawFlag = false;
-        clearTimeout(this.autoRunesTimeout);
-        this.$root.showNotification(message);
+        this.showingRecommendations = true;
     }
 
     /**

@@ -17,6 +17,7 @@
             @skins="pickingSkin = true">
         </player-settings>
         <rune-editor :show="showingRuneOverlay" @close="showingRuneOverlay = false"></rune-editor>
+        <rune-recommendations :show="showingRecommendations" @close="showingRecommendations = false"></rune-recommendations>
 
     </div>
 </template>
