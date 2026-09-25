@@ -12,7 +12,18 @@ During development, you can use `yarn serve` to start a webserver at [localhost:
 
 Building a release bundle can be done using `yarn build`. This will generate a folder called `dist/` that contains all files needed to deploy.
 
-Building is managed through vue-cli. It takes care of automatically optimizing, minifying, transpiling and everything else.
+Building is managed through vue-cli. It takes care of automatically optimizing, minifying, transpiling and everything else. On Node 17 and newer, set `NODE_OPTIONS=--openssl-legacy-provider` before building, since vue-cli 3 uses webpack 4.
+
+## Hosting with Docker
+
+The `Dockerfile` builds the app and serves it with nginx on port 80:
+
+```
+docker build -t mimic-web ./web
+docker run -d --name mimic-web --restart unless-stopped -p 8080:80 mimic-web
+```
+
+Serve it over HTTPS through a reverse proxy, at the root of a (sub)domain. Browsers only allow the app's encryption on secure pages, and the build loads its files from `/`. Then open `https://your.domain/?code=123456` with the code from Conduit.
 
 ## License
 
