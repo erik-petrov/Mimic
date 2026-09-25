@@ -1,15 +1,18 @@
 import { open, Database } from "sqlite";
 import * as fs from "fs";
 
+// Where the database is stored. Set RIFT_DATABASE to keep it somewhere persistent, like a Docker volume.
+export const DATABASE_PATH = process.env.RIFT_DATABASE || "database.db";
+
 let database!: Database;
 
 /**
  * Creates or loads a new sqlite database.
  */
 export async function create() {
-    const existed = fs.existsSync("database.db");
+    const existed = fs.existsSync(DATABASE_PATH);
 
-    database = await open("database.db");
+    database = await open(DATABASE_PATH);
 
     if (!existed) {
         await database.exec(`

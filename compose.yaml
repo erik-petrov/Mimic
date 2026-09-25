@@ -1,22 +1,40 @@
-# Hosts the Mimic web app.
+# Hosts the Mimic web app and Rift, the relay between phones and Conduit, on one address.
+# The app is served at / and Rift at /mobile, /conduit, /register and /check.
 #
 #   docker compose up -d --build
-#       Serves the app on port 8080 (or MIMIC_PORT). Point your own reverse proxy at it.
+#       Serves both on port 8080 (or MIMIC_PORT). Point your own reverse proxy at it,
+#       with websockets allowed. Then set Conduit's server to your address.
 #
 #   docker compose --profile caddy up -d --build
 #       Also runs Caddy on ports 80 and 443, which gets an HTTPS certificate for
 #       MIMIC_DOMAIN automatically. Use this if you don't already have a reverse proxy.
 #
 # Settings go in a .env file next to this one, e.g.:
+#   MIMIC_PORT=8080
 #   MIMIC_DOMAIN=mimic.example.com
 
 services:
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        # "/" makes the app use the Rift below. Set MIMIC_RIFT_URL=wss://rift.mimic.lol
+        # in .env to use the shared Rift instead.
+        RIFT_URL: ${MIMIC_RIFT_URL:-/}
     image: mimic-web
     restart: unless-stopped
+    depends_on:
+      - rift
     ports:
       - "${MIMIC_PORT:-8080}:80"
+
+  rift:
+    build: ./rift
+    image: mimic-rift
+    restart: unless-stopped
+    # Keeps registered codes and the JWT secret that signs them across rebuilds.
+    volumes:
+      - rift_data:/data
 
   caddy:
     image: caddy:2-alpine
@@ -41,5 +59,6 @@ services:
       - caddy_config:/config
 
 volumes:
+  rift_data:
   caddy_data:
   caddy_config:

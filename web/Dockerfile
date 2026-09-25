@@ -7,6 +7,12 @@ COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile
 
 COPY . .
+
+# Where the app finds Rift. Empty means the shared wss://rift.mimic.lol. compose.yaml sets "/",
+# which reaches Rift through this server (see nginx.conf).
+ARG RIFT_URL=
+ENV VUE_APP_RIFT_URL=$RIFT_URL
+
 # vue-cli 3 uses webpack 4, which needs the legacy OpenSSL provider on Node 17 and newer.
 RUN NODE_OPTIONS=--openssl-legacy-provider yarn build
 

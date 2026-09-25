@@ -14,6 +14,14 @@ During development, you can use `yarn watch` to automatically compile TypeScript
 
 `yarn bundle` acts the same as `yarn watch`, except it will only compile the files once and not listen for edits.
 
+## Configuration
+
+- `PORT`: port to listen on, 51001 by default.
+- `RIFT_DATABASE`: path of the SQLite database, `database.db` by default. The Docker image uses `/data/database.db`.
+- `RIFT_JWT_SECRET`: secret that signs the tokens given to Conduit. If unset, Rift creates one next to the database and reuses it, so codes stay valid across restarts.
+
+See `compose.yaml` in the repository root to run Rift together with the web app.
+
 ## License
 
 The Rift component of Mimic is released under the [MIT](https://github.com/molenzwiebel/Mimic/blob/master/LICENSE) license. See the index README for more info.

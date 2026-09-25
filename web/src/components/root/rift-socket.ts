@@ -20,7 +20,7 @@ export default class RiftSocket {
     private encrypted = false;
 
     constructor(private code: string) {
-        this.socket = new WebSocket("wss://rift.mimic.lol/mobile?code=" + code);
+        this.socket = new WebSocket(riftMobileUrl(code));
         this.socket.onopen = this.handleOpen;
         this.socket.onmessage = this.handleMessage;
         this.socket.onclose = this.handleClose;
@@ -170,6 +170,19 @@ export default class RiftSocket {
             this.onopen();
         }
     }
+}
+
+// Where Rift is. Set VUE_APP_RIFT_URL when building to use your own: either a full address
+// like wss://rift.example.com, or a path like "/" for Rift behind the server hosting this page.
+const RIFT_URL = process.env.VUE_APP_RIFT_URL || "wss://rift.mimic.lol";
+
+// Builds the address of Rift's websocket for phones, for the specified Conduit code.
+function riftMobileUrl(code: string): string {
+    const url = new URL(RIFT_URL.replace(/\/+$/, "") + "/mobile", location.href);
+    if (url.protocol === "https:") url.protocol = "wss:";
+    if (url.protocol === "http:") url.protocol = "ws:";
+    url.searchParams.set("code", code);
+    return url.toString();
 }
 
 // Helper to convert the specified arraybuffer to a base64 string.

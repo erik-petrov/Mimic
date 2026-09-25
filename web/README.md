@@ -16,22 +16,24 @@ Building is managed through vue-cli. It takes care of automatically optimizing, 
 
 ## Hosting with Docker
 
-`compose.yaml` in the repository root builds the app and serves it with nginx. From the repository root:
+`compose.yaml` in the repository root runs the app together with [Rift](/rift) on one address: the app at `/`, Rift at `/mobile`, `/conduit`, `/register` and `/check`. From the repository root:
 
 ```
 docker compose up -d --build
 ```
 
-This serves the app on port 8080 (set `MIMIC_PORT` to change it). The app must be served over HTTPS, at the root of a (sub)domain: browsers only allow its encryption on secure pages, and the build loads its files from `/`. Point your reverse proxy at port 8080, or let the included Caddy handle HTTPS:
+This serves both on port 8080 (set `MIMIC_PORT` in a `.env` file to change it). Serve it over HTTPS at the root of a (sub)domain, with websockets allowed: browsers only allow the app's encryption on secure pages, and the build loads its files from `/`. Point your reverse proxy at the port, or let the included Caddy handle HTTPS:
 
 ```
 echo MIMIC_DOMAIN=mimic.example.com > .env
 docker compose --profile caddy up -d --build
 ```
 
-Caddy listens on ports 80 and 443 and gets a certificate for the domain automatically, so the domain must point at the server and those ports must be reachable. Then open `https://mimic.example.com/?code=123456` with the code from Conduit.
+Caddy listens on ports 80 and 443 and gets a certificate for the domain automatically, so the domain must point at the server and those ports must be reachable.
 
-To update, pull the latest code and run the same `up` command again.
+Then point Conduit at your server: write your address, like `https://mimic.example.com`, to `%APPDATA%\Mimic\server` and restart Conduit. It gets a new code from your server, and its QR code opens your address. To keep using the shared Rift instead, set `MIMIC_RIFT_URL=wss://rift.mimic.lol` in `.env`.
+
+To update, pull the latest code and run the same `up` command again. Codes survive updates in the `rift_data` volume.
 
 ## License
 
