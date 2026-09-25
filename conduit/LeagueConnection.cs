@@ -27,6 +27,10 @@ namespace Conduit
         public event Action OnDisconnected;
         public event Action<OnWebsocketEventArgs> OnWebsocketEvent;
 
+        // Like OnWebsocketEvent, but ClearAllListeners leaves it alone. Used by autopick, which
+        // works whether or not a phone is connected.
+        public event Action<OnWebsocketEventArgs> OnWebsocketEventForAutopick;
+
         /**
          * Returns if this connection is currently connected.
          */
@@ -157,12 +161,22 @@ namespace Conduit
 
             // Invoke our listeners.
             var ev = (dynamic)payload[2];
-            OnWebsocketEvent?.Invoke(new OnWebsocketEventArgs()
+            var apiEvent = new OnWebsocketEventArgs()
             {
                 Path = ev["uri"],
                 Type = ev["eventType"],
                 Data = ev["eventType"] == "Delete" ? null : ev["data"]
-            });
+            };
+            OnWebsocketEvent?.Invoke(apiEvent);
+
+            try
+            {
+                OnWebsocketEventForAutopick?.Invoke(apiEvent);
+            }
+            catch (Exception e)
+            {
+                DebugLogger.Global.WriteError($"Autopick could not handle an event: {e}");
+            }
         }
 
         /**
@@ -235,6 +249,49 @@ namespace Conduit
             {
                 Content = body == null ? null : new StringContent(body, Encoding.UTF8, "application/json")
             });
+        }
+    }
+
+    /**
+     * Lets autopick make requests to League, with the response body parsed as JSON.
+     */
+    class LeagueApi : ILeagueApi
+    {
+        private readonly LeagueConnection league;
+
+        public LeagueApi(LeagueConnection league)
+        {
+            this.league = league;
+        }
+
+        public async Task<ApiResult> Request(string method, string path, string body)
+        {
+            try
+            {
+                var response = await league.Request(method, path, body);
+                var text = await response.Content.ReadAsStringAsync();
+
+                object content = null;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    try
+                    {
+                        content = SimpleJson.DeserializeObject(text);
+                    }
+                    catch
+                    {
+                        content = text;
+                    }
+                }
+
+                return new ApiResult { Status = (int) response.StatusCode, Content = content };
+            }
+            catch (Exception e)
+            {
+                // Not connected to League, or the request failed.
+                DebugLogger.Global.WriteWarning($"Autopick request {method} {path} failed: {e.Message}");
+                return new ApiResult { Status = 0 };
+            }
         }
     }
 

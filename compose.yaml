@@ -32,6 +32,8 @@ services:
     build: ./rift
     image: mimic-rift
     restart: unless-stopped
+    environment:
+      AUTOPICK_LOCK_IN_DELAY: ${MIMIC_AUTOPICK_LOCK_IN_DELAY:-0}
     # Keeps registered codes and the JWT secret that signs them across rebuilds.
     volumes:
       - rift_data:/data
