@@ -1,8 +1,21 @@
 import Root from "../root/root";
 import Vue from "vue";
 import { Component, Prop } from "vue-property-decorator";
-import { default as ChampSelect, ChampSelectState, ChampSelectMember } from "./champ-select";
+import { default as ChampSelect, ChampSelectState, ChampSelectMember, SwapContract, SwapKind } from "./champ-select";
 import { championSplash, POSITION_NAMES } from "@/constants";
+
+const SWAP_LABELS: { [kind in SwapKind]: string } = {
+    position: "Swap lane",
+    pickOrder: "Swap order",
+    champion: "Trade"
+};
+
+// A swap that can be requested, or cancelled if we already sent it.
+interface SwapOption {
+    kind: SwapKind;
+    swap: SwapContract;
+    label: string;
+}
 
 @Component
 export default class Members extends Vue {
@@ -57,6 +70,32 @@ export default class Members extends Vue {
 
         if (!member.assignedPosition) return extra;
         return POSITION_NAMES[member.assignedPosition.toUpperCase()] + (extra ? " - " + extra : "");
+    }
+
+    /**
+     * @returns the swaps we can request with the specified teammate, or cancel if already sent.
+     * Requests from the teammate are answered in the swap prompt instead.
+     */
+    getSwapOptions(member: ChampSelectMember): SwapOption[] {
+        if (!member.isFriendly || member.playerType === "BOT" || member.cellId === this.state.localPlayerCellId) return [];
+
+        const kinds: SwapKind[] = ["position", "pickOrder", "champion"];
+        const options: SwapOption[] = [];
+        for (const kind of kinds) {
+            const swap = this.$parent.getSwap(kind, member.cellId);
+            if (!swap) continue;
+
+            if (swap.state === "AVAILABLE") options.push({ kind, swap, label: SWAP_LABELS[kind] });
+            if (swap.state === "SENT") options.push({ kind, swap, label: "Cancel" });
+        }
+        return options;
+    }
+
+    /**
+     * Requests the specified swap, or cancels it if we already sent it.
+     */
+    toggleSwap(option: SwapOption) {
+        this.$parent.swapAction(option.kind, option.swap, option.swap.state === "SENT" ? "cancel" : "request");
     }
 
     /**

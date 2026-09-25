@@ -4,6 +4,7 @@
         <champion-picker :state="state" :show="pickingChampion" @close="pickingChampion = false"></champion-picker>
         <bench :state="state" :show="showingBench" @close="showingBench = false"></bench>
         <skin-picker :state="state" :show="pickingSkin" @close="pickingSkin = false"></skin-picker>
+        <swap-prompt :state="state"></swap-prompt>
 
         <timer :state="state"></timer>
         <members :state="state"></members>

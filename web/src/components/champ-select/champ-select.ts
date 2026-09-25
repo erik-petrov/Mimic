@@ -11,6 +11,7 @@ import ChampionPicker from "./champion-picker.vue";
 import RuneEditor from "./rune-editor.vue";
 import Bench from "./bench.vue";
 import SkinPicker from "./skin-picker.vue";
+import SwapPrompt from "./swap-prompt.vue";
 
 import MagicBackground from "../../static/magic-background.jpg";
 
@@ -147,7 +148,8 @@ export interface SkinItem {
         championPicker: ChampionPicker,
         runeEditor: RuneEditor,
         bench: Bench,
-        skinPicker: SkinPicker
+        skinPicker: SkinPicker,
+        swapPrompt: SwapPrompt
     }
 })
 export default class ChampSelect extends Vue {

@@ -13,6 +13,12 @@
                     <span class="name">{{ member.displayName }}</span>
                     <span class="state">{{ getMemberSubtext(member) }}</span>
                 </div>
+                <div class="swaps" v-if="getSwapOptions(member).length">
+                    <a v-for="option in getSwapOptions(member)" class="swap" :class="option.swap.state === 'SENT' && 'sent'" @click="toggleSwap(option)">
+                        <i :class="option.swap.state === 'SENT' ? 'ion-close' : 'ion-arrow-swap'"></i>
+                        {{ option.label }}
+                    </a>
+                </div>
             </div>
         </div>
 
@@ -82,10 +88,14 @@
         display flex
         flex-direction column
         font-family "LoL Body"
+        min-width 0
 
         .name
             font-size 45px
             text-shadow 4px 4px 5px #111
+            white-space nowrap
+            overflow hidden
+            text-overflow ellipsis
 
         .state
             display inline-block
@@ -100,6 +110,35 @@
 
     .enemy .info, .info.bot
         margin-left 20px
+
+    .swaps
+        margin-left auto
+        margin-right 20px
+        display flex
+        flex-direction column
+        align-items stretch
+
+    .swap
+        box-sizing border-box
+        margin 3px 0
+        padding 4px 16px
+        border 2px solid #c89c3c
+        background-color rgba(30, 35, 40, 0.8)
+        color #cdbe91
+        font-family "LoL Body"
+        font-size 26px
+        white-space nowrap
+        text-align center
+
+        i
+            margin-right 8px
+
+        &.sent
+            border-color #bd253c
+            color #f0e6d2
+
+        &:active
+            opacity 0.7
 
     .member-background
         position absolute
