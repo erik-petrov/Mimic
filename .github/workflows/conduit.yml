@@ -19,8 +19,13 @@ jobs:
       - name: Restore packages
         run: nuget restore conduit/Conduit.sln
 
+      # Conduit targets .NET Framework 4.6.1, whose build files are no longer installed on the
+      # runners. Microsoft publishes them as a NuGet package, which the build is pointed at.
+      - name: Get .NET Framework 4.6.1 reference assemblies
+        run: nuget install Microsoft.NETFramework.ReferenceAssemblies.net461 -Version 1.0.3 -OutputDirectory refs
+
       - name: Build
-        run: msbuild conduit/Conduit.sln /p:Configuration=Release /m
+        run: msbuild conduit/Conduit.sln /p:Configuration=Release /m "/p:TargetFrameworkRootPath=$env:GITHUB_WORKSPACE\refs\Microsoft.NETFramework.ReferenceAssemblies.net461.1.0.3\build"
 
       - uses: actions/upload-artifact@v4
         with:
