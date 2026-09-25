@@ -2,6 +2,7 @@ import Vue from "vue";
 import { Component, Prop, Watch } from "vue-property-decorator";
 import { default as ChampSelect, ChampSelectState, ChampSelectTimer, ChampSelectAction } from "./champ-select";
 import Root from "../root/root";
+import { championIcon } from "@/constants";
 
 @Component
 export default class Timer extends Vue {
@@ -83,8 +84,9 @@ export default class Timer extends Vue {
         // -1 is the no-ban icon. It is not included in ddragon.
         if (id === -1) return "https://raw.communitydragon.org/8.1/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/-1.png";
 
-        if (!this.$parent.championDetails[id]) return "";
-        return `https://ddragon.leagueoflegends.com/cdn/${this.$root.ddragonVersion}/img/champion/${this.$parent.championDetails[id].id}.png`;
+        // 0 is a ban that hasn't happened yet.
+        if (!id) return "";
+        return championIcon(id);
     }
 
     @Watch("state.timer")

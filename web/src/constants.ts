@@ -16,6 +16,43 @@ export async function loadDdragon(): Promise<string> {
     });
 }
 
+const CDRAGON_GAME_DATA = "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/";
+
+/**
+ * Converts a client asset path (like the iconPath of a perk) to the same file on
+ * CommunityDragon, which mirrors the client's game data. The phone cannot load
+ * assets from the client directly.
+ */
+export function gameDataAsset(path: string): string {
+    if (!path) return "";
+    return CDRAGON_GAME_DATA + path.replace(/^\/lol-game-data\/assets\//, "").toLowerCase();
+}
+
+/**
+ * @returns the square icon for the specified champion id. Works for every champion
+ * the client knows about, without needing to look up the champion's alias first.
+ */
+export function championIcon(id: number): string {
+    return CDRAGON_GAME_DATA + "v1/champion-icons/" + id + ".png";
+}
+
+/**
+ * @returns the centered splash art for the specified champion id and optional skin id
+ */
+export function championSplash(id: number, skinId?: number): string {
+    const base = "https://cdn.communitydragon.org/latest/champion/" + id + "/splash-art/centered";
+    return skinId ? base + "/skin/" + (skinId % 1000) : base;
+}
+
+/**
+ * @returns the name to show for a summoner or player: their Riot ID game name,
+ * or the legacy display name for data that has no Riot ID.
+ */
+export function playerName(player: { gameName?: string, displayName?: string } | null | undefined): string {
+    if (!player) return "";
+    return player.gameName || player.displayName || "";
+}
+
 export const POSITION_NAMES: { [key: string]: string } = {
     TOP: "Top",
     JUNGLE: "Jungle",

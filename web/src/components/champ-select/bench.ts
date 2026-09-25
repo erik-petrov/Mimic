@@ -2,6 +2,7 @@ import Vue from "vue";
 import { Component, Prop } from "vue-property-decorator";
 import { ChampSelectState, default as ChampSelect } from "./champ-select";
 import Root from "../root/root";
+import { championSplash } from "@/constants";
 
 @Component
 export default class Bench extends Vue {
@@ -13,6 +14,13 @@ export default class Bench extends Vue {
 
     @Prop()
     show: boolean;
+
+    /**
+     * @returns the ids of the champions currently on the bench
+     */
+    get benchChampionIds(): number[] {
+        return (this.state.benchChampions || []).map(x => x.championId);
+    }
 
     /**
      * Swaps the currently selected champion with the specified champion,
@@ -27,17 +35,13 @@ export default class Bench extends Vue {
      * @returns the background image for the specified champion
      */
     getChampionBackground(id: number) {
-        const champ = this.$parent.championDetails[id];
-        if (!champ) return "background-color: transparent;";
-
-        return "background-image: url(https://ddragon.leagueoflegends.com/cdn/img/champion/splash/" + champ.id + "_0.jpg);";
+        return "background-image: url(" + championSplash(id) + ");";
     }
 
     /**
      * @returns the name of the champion with the specified id
      */
     getChampionName(id: number) {
-        const champ = this.$parent.championDetails[id];
-        return champ ? champ.name : "Unknown";
+        return this.$parent.championName(id);
     }
 }

@@ -1,7 +1,7 @@
 import Vue from "vue";
 import Root, { Result } from "../root/root";
 import { Component } from "vue-property-decorator";
-import { loadDdragon, mapBackground, Role } from "@/constants";
+import { loadDdragon, mapBackground } from "@/constants";
 
 import Timer from "./timer.vue";
 import Members from "./members.vue";
@@ -15,19 +15,22 @@ import SkinPicker from "./skin-picker.vue";
 import MagicBackground from "../../static/magic-background.jpg";
 
 export interface ChampSelectMember {
-    assignedPosition: Role | ""; // blind pick has no role
-    playerType: string; // either PLAYER or BOT
+    assignedPosition: string; // lowercase, e.g. "jungle". Empty in blind pick.
+    playerType: string; // "BOT" for bots
     cellId: number;
     championId: number;
     championPickIntent: number;
     selectedSkinId: number;
-    displayName: string;
     summonerId: number;
+    gameName: string; // empty if the name is hidden
+    tagLine: string;
+    nameVisibilityType: string; // "VISIBLE" or "HIDDEN"
     spell1Id: number;
     spell2Id: number;
     team: number;
 
     // added manually
+    displayName: string;
     isFriendly: boolean;
 }
 
@@ -60,14 +63,40 @@ export interface ChampSelectState {
     theirTeam: ChampSelectMember[];
 
     timer: ChampSelectTimer;
-    trades: {
-        id: number;
-        cellId: number;
-        state: string; // this is an enum.
-    };
+
+    // Swaps with teammates. Champion swaps are still reported under "trades".
+    trades: SwapContract[];
+    pickOrderSwaps: SwapContract[];
+    positionSwaps: SwapContract[];
 
     benchEnabled: boolean;
-    benchChampionIds: number[];
+    benchChampions: { championId: number, isPriority: boolean }[];
+}
+
+export type SwapState = "ACCEPTED" | "AVAILABLE" | "BUSY" | "CANCELLED" | "DECLINED" | "INVALID" | "RECEIVED" | "SENT";
+
+// A possible swap with the teammate in the specified cell. The id changes after every swap.
+export interface SwapContract {
+    id: number;
+    cellId: number;
+    state: SwapState;
+}
+
+export type SwapKind = "position" | "pickOrder" | "champion";
+
+const SWAP_ENDPOINTS: { [kind in SwapKind]: string } = {
+    position: "position-swaps",
+    pickOrder: "pick-order-swaps",
+    champion: "champion-swaps"
+};
+
+// An entry from /lol-champ-select/v1/all-grid-champions, with the name in the client's language.
+export interface GridChampion {
+    id: number;
+    name: string;
+    owned: boolean;
+    freeToPlay: boolean;
+    disabled: boolean;
 }
 
 export interface GameflowState {
@@ -134,8 +163,12 @@ export default class ChampSelect extends Vue {
     skins: SkinItem[] = [];
     pickingSkin = false;
 
-    // These two are used to map summoner/champion id -> data.
-    championDetails: { [id: number]: { id: string, key: string, name: string } } = {};
+    // Every champion the client knows about, by id. Loaded from the client itself so
+    // that it always matches the client's patch and language.
+    champions: { [id: number]: GridChampion } = {};
+    loadingChampions = false;
+
+    // Used to map summoner spell id -> data.
     summonerSpellDetails: { [id: number]: { id: string, key: string, name: string } } = {};
 
     // Information for the summoner spell overlay.
@@ -152,13 +185,6 @@ export default class ChampSelect extends Vue {
     showingBench = false;
 
     mounted() {
-        this.loadStatic("champion.json").then(map => {
-            // map to { id: data }
-            const details: any = {};
-            Object.keys(map.data).forEach(x => details[+map.data[x].key] = map.data[x]);
-            this.championDetails = details;
-        });
-
         this.loadStatic("summoner.json").then(map => {
             // map to { id: data }
             const details: any = {};
@@ -203,6 +229,11 @@ export default class ChampSelect extends Vue {
         const newState: ChampSelectState = result.content;
         newState.localPlayer = newState.myTeam.filter(x => x.cellId === newState.localPlayerCellId)[0];
 
+        // The champion list only exists while in champ select, so load it when we enter.
+        if (!this.state || !Object.keys(this.champions).length) {
+            this.loadChampions();
+        }
+
         // If we haven't loaded skins before, do so now.
         if (!this.skins.length) {
             const url = `/lol-champions/v1/inventories/${newState.localPlayer.summonerId}/skins-minimal`;
@@ -213,20 +244,17 @@ export default class ChampSelect extends Vue {
             });
         }
 
-        // For everyone on our team, request their summoner name.
-        await Promise.all(newState.myTeam.map(async mem => {
-            if (mem.playerType === "BOT") {
-                mem.displayName = (this.championDetails[mem.championId] || { name: "Unknown" }).name + " Bot";
-            } else {
-                const summ = (await this.$root.request("/lol-summoner/v1/summoners/" + mem.summonerId)).content;
-                mem.displayName = summ.displayName;
-            }
+        // The session includes Riot IDs. They are empty when the client hides the name,
+        // such as for the enemy team, in which case we show a placeholder like the client does.
+        newState.myTeam.forEach((mem, idx) => {
+            mem.displayName = mem.playerType === "BOT"
+                ? this.championName(mem.championId) + " Bot"
+                : mem.gameName || "Summoner " + (idx + 1);
             mem.isFriendly = true;
-        }));
+        });
 
-        // Give enemy summoners obfuscated names, if we don't know their names
         newState.theirTeam.forEach((mem, idx) => {
-            mem.displayName = "Summoner " + (idx + 1);
+            mem.displayName = mem.gameName || "Summoner " + (idx + 1);
             mem.isFriendly = false;
         });
 
@@ -288,6 +316,54 @@ export default class ChampSelect extends Vue {
     getMember(cellId: number): ChampSelectMember {
         if (!this.state) throw new Error("Shouldn't happen");
         return this.state.myTeam.filter(x => x.cellId === cellId)[0] || this.state.theirTeam.filter(x => x.cellId === cellId)[0];
+    }
+
+    /**
+     * Loads the names of all champions from the client.
+     */
+    async loadChampions() {
+        if (this.loadingChampions) return;
+
+        this.loadingChampions = true;
+        const result = await this.$root.request("/lol-champ-select/v1/all-grid-champions");
+        this.loadingChampions = false;
+        if (result.status !== 200 || !Array.isArray(result.content)) return;
+
+        const champions: { [id: number]: GridChampion } = {};
+        result.content.forEach((x: GridChampion) => champions[x.id] = x);
+        this.champions = champions;
+    }
+
+    /**
+     * @returns the name of the specified champion, in the client's language
+     */
+    championName(id: number): string {
+        const champ = this.champions[id];
+        return champ ? champ.name : "Unknown";
+    }
+
+    /**
+     * @returns the swap of the specified kind with the teammate in the specified cell, if any
+     */
+    getSwap(kind: SwapKind, cellId: number): SwapContract | undefined {
+        return this.getSwaps(kind).filter(x => x.cellId === cellId)[0];
+    }
+
+    /**
+     * @returns all swaps of the specified kind in the current session
+     */
+    getSwaps(kind: SwapKind): SwapContract[] {
+        if (!this.state) return [];
+        if (kind === "position") return this.state.positionSwaps || [];
+        if (kind === "pickOrder") return this.state.pickOrderSwaps || [];
+        return this.state.trades || [];
+    }
+
+    /**
+     * Requests, accepts, declines or cancels the specified swap.
+     */
+    swapAction(kind: SwapKind, swap: SwapContract, action: "request" | "accept" | "decline" | "cancel") {
+        this.$root.request(`/lol-champ-select/v1/session/${SWAP_ENDPOINTS[kind]}/${swap.id}/${action}`, "POST");
     }
 
     /**

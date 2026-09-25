@@ -2,6 +2,7 @@ import Vue from "vue";
 import { Component, Prop } from "vue-property-decorator";
 import { ChampSelectState, default as ChampSelect, SkinItem } from "./champ-select";
 import Root from "../root/root";
+import { championSplash } from "@/constants";
 
 @Component
 export default class SkinPicker extends Vue {
@@ -45,9 +46,6 @@ export default class SkinPicker extends Vue {
      * @returns the url to the splashart for the specified skin id
      */
     getSkinImage(skin: SkinItem): string {
-        const champ = this.$parent.championDetails[skin.championId];
-        if (!champ) return "";
-
-        return `background-image: url(https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${champ.id}_${skin.id % 1000}.jpg);`;
+        return `background-image: url(${championSplash(skin.championId, skin.id)});`;
     }
 }

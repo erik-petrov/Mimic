@@ -67,7 +67,11 @@
             font-size 60px
 
         .content
-            max-height "calc(100vh - %s)" % (timer-status-height + 90px)
+            // Take exactly the space left between the search box and the button,
+            // so the last rows can always be scrolled into view.
+            flex 1
+            min-height 0
+            align-content flex-start
             overflow-y scroll
             -webkit-overflow-scrolling touch
             display flex
