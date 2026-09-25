@@ -24,6 +24,12 @@
       S  saves a snapshot of the champ select, rune and lobby endpoints
       Q  stops recording
 
+.PARAMETER TestAutoRunes
+    Instead of dumping, tests auto runes during champ select: asks the client for
+    auto runes the way Mimic does, watches what the client does for a few seconds,
+    and fetches the recommended pages directly. Pick or hover a champion first.
+    Writes autorunes-test.json and recommended-pages.json.
+
 .PARAMETER OutDir
     Where to write the dump. Defaults to .\lcu-dump-<date>-<time>.
 
@@ -40,10 +46,14 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\lcu-dump.ps1 -Record
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\lcu-dump.ps1 -TestAutoRunes
 #>
 [CmdletBinding()]
 param(
     [switch]$Record,
+    [switch]$TestAutoRunes,
     [string]$OutDir,
     [string]$LockfilePath,
     [string[]]$ExcludePrefix = @("/lol-chat/", "/riot-messaging-service/", "/lol-hovercard/", "/lol-game-client-chat/")
@@ -106,6 +116,7 @@ public static class LcuHelper
         req.Headers[HttpRequestHeader.Authorization] = "Basic " + auth;
         req.ServerCertificateValidationCallback = AcceptAll;
         req.Timeout = 120000;
+        if (method != "GET") req.ContentLength = 0;
         req.ReadWriteTimeout = 120000;
 
         HttpWebResponse res;
@@ -351,6 +362,106 @@ function Start-Recording([string]$dir) {
     }
 }
 
+function Get-LcuJson([string]$path, [string]$method = "GET") {
+    $res = Invoke-Lcu $path $method
+    $parsed = $null
+    if ($res.Body) {
+        try { $parsed = $res.Body | ConvertFrom-Json } catch { }
+    }
+    return @{ status = $res.Status; data = $parsed; body = $res.Body }
+}
+
+function Get-RuneState {
+    $current = (Get-LcuJson "/lol-perks/v1/currentpage").data
+    $pages = @((Get-LcuJson "/lol-perks/v1/pages").data)
+    $flag = (Get-LcuJson "/lol-perks/v1/rune-recommender-auto-select").data
+    return [ordered]@{
+        autoSelectFlag = $flag
+        currentPage = if ($current) { [ordered]@{ id = $current.id; name = $current.name; isTemporary = $current.isTemporary; recommendationChampionId = $current.recommendationChampionId } } else { $null }
+        pageCount = $pages.Count
+        temporaryPages = @($pages | Where-Object { $_.isTemporary } | ForEach-Object { [ordered]@{ id = $_.id; name = $_.name; recommendationChampionId = $_.recommendationChampionId } })
+    }
+}
+
+function Test-AutoRunes([string]$dir) {
+    $session = (Get-LcuJson "/lol-champ-select/v1/session").data
+    if (-not $session) { throw "Not in champ select. Start a game (a practice tool lobby works), pick or hover a champion, and run this again." }
+
+    $me = @($session.myTeam | Where-Object { $_.cellId -eq $session.localPlayerCellId })[0]
+    $champion = if ($me.championId) { $me.championId } else { $me.championPickIntent }
+    if (-not $champion) { throw "Pick or hover a champion first, then run this again." }
+
+    $gameflow = (Get-LcuJson "/lol-gameflow/v1/session").data
+    $mapId = if ($gameflow -and $gameflow.map) { $gameflow.map.id } else { 11 }
+
+    $report = [ordered]@{
+        testedAt = [DateTime]::UtcNow.ToString("o")
+        championId = $champion
+        assignedPosition = $me.assignedPosition
+        mapId = $mapId
+        before = Get-RuneState
+    }
+
+    Write-Host "Champion $champion, position '$($me.assignedPosition)', map $mapId."
+    Write-Host "Asking the client for auto runes, like Mimic's wand button..."
+    $post = Invoke-Lcu "/lol-perks/v1/rune-recommender-auto-select" "POST"
+    $report.post = [ordered]@{ status = $post.Status; body = $post.Body }
+    Write-Host "  POST /lol-perks/v1/rune-recommender-auto-select -> $($post.Status) $($post.Body)"
+
+    # Watch what the client does over the next few seconds.
+    $timeline = @()
+    $last = ""
+    $start = Get-Date
+    for ($i = 0; $i -lt 16; $i++) {
+        Start-Sleep -Milliseconds 500
+        $state = Get-RuneState
+        $text = $state | ConvertTo-Json -Depth 5 -Compress
+        if ($text -ne $last) {
+            $seconds = [Math]::Round(((Get-Date) - $start).TotalSeconds, 1)
+            $timeline += [ordered]@{ seconds = $seconds; state = $state }
+            $page = if ($state.currentPage) { "$($state.currentPage.name) (temporary: $($state.currentPage.isTemporary))" } else { "none" }
+            Write-Host "  after $($seconds)s: flag $($state.autoSelectFlag), current page $page"
+            $last = $text
+        }
+    }
+    $report.timeline = $timeline
+
+    # Ask for the recommended pages directly, with the position as the session writes it and in capitals.
+    $position = $me.assignedPosition
+    if (-not $position) {
+        $position = (Get-LcuJson "/lol-perks/v1/recommended-pages/position/champion/$champion").data
+        $report.defaultPosition = $position
+    }
+
+    $report.recommended = @()
+    $saved = $false
+    foreach ($candidate in (@("$position", "$position".ToUpper()) | Select-Object -Unique)) {
+        $path = "/lol-perks/v1/recommended-pages/champion/$champion/position/$candidate/map/$mapId"
+        $rec = Get-LcuJson $path
+        $pages = @($rec.data | Where-Object { $_ -and $_.keystone })
+        $count = if ($rec.status -eq 200) { $pages.Count } else { 0 }
+        $report.recommended += [ordered]@{
+            path = $path
+            status = $rec.status
+            count = $count
+            pages = @($pages | ForEach-Object {
+                [ordered]@{
+                    position = $_.position; keystone = $_.keystone.name; primaryPerkStyleId = $_.primaryPerkStyleId
+                    secondaryPerkStyleId = $_.secondaryPerkStyleId; perkIds = @($_.perks | ForEach-Object { $_.id })
+                    summonerSpellIds = $_.summonerSpellIds; recommendationId = $_.recommendationId
+                }
+            })
+        }
+        Write-Host "  GET $path -> $($rec.status), $count pages"
+        if ($rec.status -eq 200 -and -not $saved) {
+            [System.IO.File]::WriteAllText((Join-Path $dir "recommended-pages.json"), $rec.body, (New-Object System.Text.UTF8Encoding($false)))
+            $saved = $true
+        }
+    }
+
+    [System.IO.File]::WriteAllText((Join-Path $dir "autorunes-test.json"), ($report | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+}
+
 if ($PSVersionTable.PSEdition -ne "Core") {
     # Windows PowerShell 5.1 may not enable TLS 1.2 by default.
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
@@ -371,6 +482,14 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
 
 Write-Host "Found the League client on port $($script:Creds.Port). Writing to $OutDir"
+
+if ($TestAutoRunes) {
+    Write-Host ""
+    Test-AutoRunes $OutDir
+    Write-Host ""
+    Write-Host "Done. Send autorunes-test.json from $OutDir" -ForegroundColor Cyan
+    return
+}
 Write-Host ""
 Write-Host "API reference:"
 
