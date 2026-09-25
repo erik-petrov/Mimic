@@ -21,7 +21,7 @@
                 <option :value="rune.id" :selected="rune.isActive" v-for="rune in $parent.runePages">{{ rune.name }}</option>
             </select>
 
-            <div class="circular-button" :class="!$parent.localChampionId && 'disabled'" @click="$parent.autoSelectRunes()"><i class="ion-wand"></i></div>
+            <div class="circular-button" :class="{ disabled: !$parent.localChampionId, busy: !!$parent.autoRunesChampion }" @click="$parent.autoSelectRunes()"><i class="ion-wand"></i></div>
             <div class="circular-button" @click="$emit('runes')"><i class="ion-edit"></i></div>
         </div>
 
@@ -53,6 +53,15 @@
 
     .circular-button.disabled
         opacity 0.4
+
+    // Pulses while the client sets up auto runes.
+    @keyframes auto-runes-busy
+        0% { opacity: 1; }
+        50% { opacity: 0.3; }
+        100% { opacity: 1; }
+
+    .circular-button.busy
+        animation auto-runes-busy 1s ease infinite
 
     .circular-button.squared
         border-radius 0

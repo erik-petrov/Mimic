@@ -122,6 +122,8 @@ export interface RunePage {
     name: string;
     isEditable: boolean;
     isActive: boolean;
+    isTemporary?: boolean; // recommended pages made by the client, like auto runes
+    recommendationChampionId?: number;
     order: number;
     primaryStyleId: number; // -1 if not selected
     subStyleId: number; // -1 if not selected
@@ -183,6 +185,11 @@ export default class ChampSelect extends Vue {
     // Information for the rune editor.
     showingRuneOverlay = false;
 
+    // Champion we asked the client to set up recommended runes for, or 0 when not waiting.
+    autoRunesChampion = 0;
+    autoRunesSawFlag = false;
+    autoRunesTimeout = -1;
+
     // Information for the reroll bench.
     showingBench = false;
 
@@ -214,6 +221,25 @@ export default class ChampSelect extends Vue {
             // Update the isActive param if needed.
             if (this.currentRunePage) {
                 this.runePages.forEach(x => x.isActive = x.id === this.currentRunePage!.id);
+            }
+
+            // Auto runes are done once the client selects its recommended page for our champion.
+            const page = this.currentRunePage;
+            if (page && page.isTemporary && this.autoRunesChampion && page.recommendationChampionId === this.autoRunesChampion) {
+                this.finishAutoRunes("Runes set: " + page.name);
+            }
+        });
+
+        // The client raises this flag while it works on an auto runes request, and lowers it
+        // when done. This also catches a request that leaves the current page unchanged.
+        this.$root.observe("/lol-perks/v1/rune-recommender-auto-select", response => {
+            if (response.status !== 200 || !this.autoRunesChampion) return;
+
+            if (response.content === true) {
+                this.autoRunesSawFlag = true;
+            } else if (this.autoRunesSawFlag) {
+                const page = this.currentRunePage;
+                this.finishAutoRunes(page ? "Runes set: " + page.name : "Runes set.");
             }
         });
     }
@@ -383,9 +409,35 @@ export default class ChampSelect extends Vue {
      * Asks the client to set up the recommended runes for our champion, like the client's
      * own auto runes option. The client makes a temporary page and selects it.
      */
-    autoSelectRunes() {
-        if (!this.localChampionId) return;
-        this.$root.request("/lol-perks/v1/rune-recommender-auto-select", "POST");
+    async autoSelectRunes() {
+        const champion = this.localChampionId;
+        if (!champion || this.autoRunesChampion) return;
+
+        this.autoRunesChampion = champion;
+        this.autoRunesSawFlag = false;
+
+        const result = await this.$root.request("/lol-perks/v1/rune-recommender-auto-select", "POST");
+        if (result.status >= 300) {
+            this.finishAutoRunes("The League client refused auto runes (error " + result.status + ").");
+            return;
+        }
+
+        // The client usually takes a few seconds. Say so if it never picks the request up.
+        this.autoRunesTimeout = window.setTimeout(() => {
+            this.finishAutoRunes("The League client didn't set up runes. Try again with the League window open.");
+        }, 12000);
+    }
+
+    /**
+     * Stops waiting for auto runes and tells the user how it went.
+     */
+    finishAutoRunes(message: string) {
+        if (!this.autoRunesChampion) return;
+
+        this.autoRunesChampion = 0;
+        this.autoRunesSawFlag = false;
+        clearTimeout(this.autoRunesTimeout);
+        this.$root.showNotification(message);
     }
 
     /**

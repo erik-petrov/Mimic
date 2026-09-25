@@ -210,7 +210,7 @@ export default class Root extends Vue {
     /**
      * Shows a notification that hides after a few moments.
      */
-    private showNotification(content: string) {
+    public showNotification(content: string) {
         this.notifications.push(content);
         setTimeout(() => {
             this.notifications.splice(this.notifications.indexOf(content), 1);

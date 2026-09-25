@@ -48,7 +48,8 @@
         height 100%
 
     .notification
-        z-index 1000
+        // Above every screen, including champ select (10000).
+        z-index 20000
         position absolute
         background-color black
         padding 10px
