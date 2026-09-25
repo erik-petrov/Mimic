@@ -21,6 +21,7 @@
                 <option :value="rune.id" :selected="rune.isActive" v-for="rune in $parent.runePages">{{ rune.name }}</option>
             </select>
 
+            <div class="circular-button" :class="!$parent.localChampionId && 'disabled'" @click="$parent.autoSelectRunes()"><i class="ion-wand"></i></div>
             <div class="circular-button" @click="$emit('runes')"><i class="ion-edit"></i></div>
         </div>
 
@@ -49,6 +50,9 @@
 
     .skins.disabled
         filter grayscale()
+
+    .circular-button.disabled
+        opacity 0.4
 
     .circular-button.squared
         border-radius 0

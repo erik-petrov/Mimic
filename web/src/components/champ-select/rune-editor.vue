@@ -9,6 +9,7 @@
                     <option :value="rune.id" :selected="rune.isActive" v-for="rune in $parent.runePages.filter(x => x.isEditable)">{{ rune.name }}</option>
                 </select>
 
+                <div class="circular-button" :class="!$parent.localChampionId && 'disabled'" @click="$parent.autoSelectRunes()"><i class="ion-wand"></i></div>
                 <div class="circular-button" @click="addPage"><i class="ion-plus"></i></div>
                 <div class="circular-button" @click="removePage"><i class="ion-trash-a"></i></div>
             </div>
@@ -147,6 +148,9 @@
             .circular-button
                 flex 0 90px
                 margin 0 10px
+
+            .circular-button.disabled
+                opacity 0.4
 
     .content
         overflow-y scroll

@@ -369,6 +369,26 @@ export default class ChampSelect extends Vue {
     }
 
     /**
+     * @returns the champion the local player has picked or is hovering, or 0 if none
+     */
+    get localChampionId(): number {
+        if (!this.state) return 0;
+
+        const member = this.state.localPlayer;
+        const act = this.getActions(member);
+        return (act ? act.championId : 0) || member.championId || member.championPickIntent || 0;
+    }
+
+    /**
+     * Asks the client to set up the recommended runes for our champion, like the client's
+     * own auto runes option. The client makes a temporary page and selects it.
+     */
+    autoSelectRunes() {
+        if (!this.localChampionId) return;
+        this.$root.request("/lol-perks/v1/rune-recommender-auto-select", "POST");
+    }
+
+    /**
      * Selects the specified rune page, by setting its `current` property to true and calling the collections backend.
      */
     selectRunePage(event: Event) {
