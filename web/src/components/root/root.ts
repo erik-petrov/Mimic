@@ -10,6 +10,7 @@ import ChampSelect from "../champ-select/champ-select.vue";
 import Invites from "../invites/invites.vue";
 import Version from "../../util/version";
 import RiftSocket, { MobileOpcode } from "./rift-socket";
+import { onUpdateReady } from "../../registerServiceWorker";
 
 // Represents a result from the LCU api.
 export interface Result {
@@ -48,6 +49,17 @@ export default class Root extends Vue {
     requests: { [key: number]: Function } = {};
 
     mounted() {
+        // Load a new version of the app right away, unless that would interrupt a connection.
+        // Then it waits until the app is in the background.
+        onUpdateReady(() => {
+            if (!this.connected) return window.location.reload();
+
+            this.showNotification("Mimic was updated. It will reload when you switch away from it.");
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "hidden") window.location.reload();
+            });
+        });
+
         setTimeout(() => {
             // Check if this device has a notch (currently only iPhone X+) and is running
             // standalone. If yes, add a class to the body for others to react on.
@@ -84,10 +96,11 @@ export default class Root extends Vue {
     }
 
     /**
-     * @returns the most recent notification, if there is one
+     * @returns the most recent notification, if there is one. Newer ones show right away;
+     * each disappears on its own timer, so older ones never come back after a newer one.
      */
     get notification() {
-        return this.notifications[0];
+        return this.notifications[this.notifications.length - 1];
     }
 
     /**
