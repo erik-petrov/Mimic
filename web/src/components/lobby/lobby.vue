@@ -31,7 +31,7 @@
                             v-for="member in lobbyMembers"
                             :key="member.summonerId"
                             :member="member"
-                            :show-positions="state.gameConfig.showPositionSelector"
+                            :show-positions="showPositions"
                             :show-moderation="state.localMember.isLeader"
                             @promote="promoteMember(member)"
                             @invite="toggleInvite(member)"
@@ -143,10 +143,17 @@
         justify-content space-between
         border-bottom 1px solid rgba(240, 230, 210, 0.5)
 
+        // The text takes the room left, so a long custom game name can't push the leave button away.
         .info
+            flex 1
+            min-width 0
             display flex
             flex-direction column
             white-space nowrap
+
+            span
+                overflow hidden
+                text-overflow ellipsis
 
         .header
             color #f0e6d3
@@ -161,8 +168,13 @@
         .close:active
             opacity 0.7
 
+        .highlightable
+            flex-shrink 0
+
         i
+            flex-shrink 0
             margin-right 20px
+            margin-left 20px
             font-size 80px
 
     .invite-prompt

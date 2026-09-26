@@ -67,6 +67,9 @@ type View = "roles" | "role" | "pick" | "champion" | "skin" | "spell" | "custom-
 const CLASSIC_OFFSET = 60000;
 const SHOW_CLASSIC_KEY = "autopick-show-classic";
 
+// Smite belongs to the jungler: the client refuses it for other positions and won't take it off a jungler.
+const SMITE = 11;
+
 // Where a new custom rune page starts: Precision and Domination, with the usual stat shards.
 const NEW_CUSTOM_RUNES = { primaryStyleId: 8000, subStyleId: 8100, selectedPerkIds: [0, 0, 0, 0, 0, 0, 5008, 5008, 5001] };
 
@@ -97,6 +100,9 @@ export default class AutopickSetup extends Vue {
     // Which summoner spell is being chosen, and the first one while choosing the second.
     spellSlot = 1;
     firstSpell = 0;
+
+    // For Jungle: whether Smite goes on D (the first spell) or F.
+    smiteOnD = false;
 
     roles: AutopickRoles = {};
 
@@ -170,6 +176,7 @@ export default class AutopickSetup extends Vue {
         if (this.view === "pick") return this.currentPick ? this.championName(this.currentPick.championId) : "";
         if (this.view === "champion") return this.choosing === "ban" ? "Choose a Ban" : "Choose a Champion";
         if (this.view === "skin") return "Choose a Skin";
+        if (this.view === "spell" && this.role === "jungle") return "Spell Next to Smite";
         if (this.view === "spell") return this.spellSlot === 1 ? "First Summoner Spell" : "Second Summoner Spell";
         return "Custom Runes";
     }
@@ -215,7 +222,8 @@ export default class AutopickSetup extends Vue {
      */
     get availableSpells(): Spell[] {
         const modes = this.role === "any" ? ["CLASSIC", "ARAM"] : ["CLASSIC"];
-        return this.spells.filter(x => x.gameModes && x.gameModes.some(mode => modes.indexOf(mode) !== -1));
+        // Smite isn't a choice: Jungle always has it, and nobody else can take it.
+        return this.spells.filter(x => x.id !== SMITE && x.gameModes && x.gameModes.some(mode => modes.indexOf(mode) !== -1));
     }
 
     back() {
@@ -347,7 +355,36 @@ export default class AutopickSetup extends Vue {
     openSpells() {
         this.spellSlot = 1;
         this.firstSpell = 0;
+        const pick = this.currentPick;
+        this.smiteOnD = !!pick && pick.spell1Id === SMITE;
         this.view = "spell";
+    }
+
+    /**
+     * For Jungle: puts Smite on D or F, keeping the other spell.
+     */
+    setSmiteKey(onD: boolean) {
+        this.smiteOnD = onD;
+        const pick = this.currentPick;
+        if (!pick || !pick.spell1Id || !pick.spell2Id) return;
+
+        const other = pick.spell1Id === SMITE ? pick.spell2Id : pick.spell1Id;
+        pick.spell1Id = onD ? SMITE : other;
+        pick.spell2Id = onD ? other : SMITE;
+        this.save();
+    }
+
+    /**
+     * @returns a warning about Smite in this pick's spells, or ""
+     */
+    get smiteWarning(): string {
+        const pick = this.currentPick;
+        if (!pick || !pick.spell1Id || !pick.spell2Id) return "";
+
+        const hasSmite = pick.spell1Id === SMITE || pick.spell2Id === SMITE;
+        if (this.role !== "jungle" && hasSmite) return "Smite only works for junglers, so autopick leaves it out. Choose the spells again.";
+        if (this.role === "jungle" && !hasSmite) return "Autopick keeps Flash (or the first spell) and adds Smite. Choose the spells again to pick the key.";
+        return "";
     }
 
     /**
@@ -360,6 +397,10 @@ export default class AutopickSetup extends Vue {
         if (id === 0) {
             pick.spell1Id = 0;
             pick.spell2Id = 0;
+        } else if (this.role === "jungle") {
+            // One tap: the spell goes next to Smite.
+            pick.spell1Id = this.smiteOnD ? SMITE : id;
+            pick.spell2Id = this.smiteOnD ? id : SMITE;
         } else if (this.spellSlot === 1) {
             this.firstSpell = id;
             this.spellSlot = 2;

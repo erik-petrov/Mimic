@@ -74,6 +74,9 @@ export default class Lobby extends Vue {
     matchmakingState: QueueState | null = null;
 
     queueName = "";
+
+    // Whether the queue asks for positions. Custom Draft does, even when its lobby doesn't say so.
+    queueShowsPositions = false;
     mapName = "";
 
     showingRolePicker = false;
@@ -131,7 +134,8 @@ export default class Lobby extends Vue {
 
         // Load queue/map info.
         const queueInfo = await this.$root.request("/lol-game-queues/v1/queues/" + state.gameConfig.queueId);
-        this.queueName = queueInfo.content.description;
+        this.queueName = queueInfo.content ? queueInfo.content.description : "";
+        this.queueShowsPositions = !!(queueInfo.content && queueInfo.content.showPositionSelector);
 
         const mapInfo = await this.$root.request("/lol-maps/v1/map/" + state.gameConfig.mapId);
         this.mapName = mapInfo.content.name;
@@ -148,7 +152,7 @@ export default class Lobby extends Vue {
      * only while the roles are still the default ones.
      */
     async applySavedRoles(state: LobbyState) {
-        if (!state.gameConfig.showPositionSelector) return;
+        if (!this.showPositions) return;
 
         const key = (state.partyId || "") + ":" + state.gameConfig.queueId;
         if (this.savedRolesAppliedTo === key) return;
@@ -168,6 +172,13 @@ export default class Lobby extends Vue {
             firstPreference: roles.firstPreference,
             secondPreference: roles.secondPreference || "UNSELECTED"
         }));
+    }
+
+    /**
+     * @returns whether to show the role pickers: when the lobby or its queue asks for positions
+     */
+    get showPositions(): boolean {
+        return !!this.state && (this.state.gameConfig.showPositionSelector || this.queueShowsPositions);
     }
 
     /**

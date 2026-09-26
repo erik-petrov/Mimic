@@ -49,6 +49,11 @@ namespace Conduit
         // League Classic offers them, and it offers only them.
         public const long CLASSIC_OFFSET = 60000;
 
+        // Smite belongs to the jungler: the client refuses it for other positions and won't take it
+        // off a jungler. Flash is what a jungler keeps next to it.
+        public const long SMITE = 11;
+        public const long FLASH = 4;
+
         private static readonly Dictionary<string, string> ROLE_NAMES = new Dictionary<string, string>
         {
             { "top", "Top" }, { "jungle", "Jungle" }, { "middle", "Mid" }, { "bottom", "Bot" }, { "utility", "Support" }, { "any", "All roles" }
@@ -73,6 +78,7 @@ namespace Conduit
         private Timer ticker;
 #pragma warning restore 414
         private Dictionary<long, string> championNames;
+        private Dictionary<long, List<string>> spellModes;
 
         /**
          * Invoked whenever the state the phone shows changes.
@@ -423,7 +429,8 @@ namespace Conduit
                 banRoleName = ROLE_NAMES["any"];
             }
 
-            if (picks.Count == 0 && bans.Count == 0)
+            // After a lane swap into a role without a setup, the locked-in champion keeps the setup it came with.
+            if (picks.Count == 0 && bans.Count == 0 && p.ExtrasEntry == null)
             {
                 SetStatus(roleKey == "any" ? "Autopick has nothing set up for All roles." : "Autopick has nothing set up for " + ROLE_NAMES[roleKey] + " or All roles.");
                 return;
@@ -502,15 +509,34 @@ namespace Conduit
                 return;
             }
 
-            // Once we have a champion, set up its skin, spells and runes.
+            // Once we have a champion, set up its skin, spells and runes. Again after a lane swap,
+            // since the spells (Smite) and recommended runes depend on the position.
             var locked = Num(local, "championId");
-            if (locked > 0 && p.ExtrasFor != locked)
+            var extrasKey = locked + ":" + position;
+            if (locked > 0 && p.ExtrasFor != extrasKey)
             {
-                p.ExtrasFor = locked;
+                var swapped = p.ExtrasFor != null && p.ExtrasFor.StartsWith(locked + ":");
+                if (swapped)
+                {
+                    // Give the client a moment to move Smite itself, like it does on a swap.
+                    if (p.SettleUntil == DateTime.MinValue) p.SettleUntil = DateTime.UtcNow.AddMilliseconds(SWAP_SETTLE_MS);
+                    if (DateTime.UtcNow < p.SettleUntil) return;
+                }
+                p.SettleUntil = DateTime.MinValue;
+                p.ExtrasFor = extrasKey;
+
                 var entry = picks.FirstOrDefault(x => Num(x, "championId") == locked);
-                if (entry != null) await ApplyExtras(entry, locked, position);
+                if (entry == null && p.ExtrasEntry != null && Num(p.ExtrasEntry, "championId") == locked) entry = p.ExtrasEntry;
+                if (entry != null)
+                {
+                    p.ExtrasEntry = entry;
+                    await ApplyExtras(entry, locked, position, Num(local, "spell1Id"), Num(local, "spell2Id"), !swapped);
+                }
             }
         }
+
+        // How long to wait after a lane swap before setting spells again.
+        public static int SWAP_SETTLE_MS = 1500;
 
         private async Task Ban(JsonObject s, SessionProgress p, JsonObject action, List<long> bans, Func<long, bool> canBan, int delay, string roleName)
         {
@@ -676,24 +702,30 @@ namespace Conduit
         /**
          * Sets the skin, summoner spells and runes chosen for the champion we got.
          */
-        private async Task ApplyExtras(JsonObject entry, long championId, string position)
+        private async Task ApplyExtras(JsonObject entry, long championId, string position, long have1, long have2, bool withSkin)
         {
             var done = new List<string>();
             var problems = new List<string>();
 
-            var spell1 = Num(entry, "spell1Id");
-            var spell2 = Num(entry, "spell2Id");
-            if (spell1 > 0 && spell2 > 0)
+            var want1 = Num(entry, "spell1Id");
+            var want2 = Num(entry, "spell2Id");
+            if (want1 > 0 && want2 > 0)
             {
-                var result = await api.Request("PATCH", "/lol-champ-select/v1/session/my-selection", "{\"spell1Id\":" + spell1 + ",\"spell2Id\":" + spell2 + "}");
-                if (result.Ok) done.Add("spells");
-                else problems.Add("the League client refused the spells" + Describe(result));
+                var spells = await ResolveSpells(want1, want2, position, have1, have2);
+                if (spells.Item3 != null) problems.Add(spells.Item3);
+                if (spells.Item1 > 0 && spells.Item2 > 0)
+                {
+                    var result = await api.Request("PATCH", "/lol-champ-select/v1/session/my-selection", "{\"spell1Id\":" + spells.Item1 + ",\"spell2Id\":" + spells.Item2 + "}");
+                    if (!result.Ok) problems.Add("the League client refused the spells" + Describe(result));
+                    else if (await VerifySpells(spells.Item1, spells.Item2)) done.Add("spells");
+                    else problems.Add("the League client kept other spells");
+                }
             }
 
             // Skin ids are the champion id followed by three digits, so a skin chosen for the normal
             // version of a champion doesn't fit its League Classic version.
             var skin = Num(entry, "skinId");
-            if (skin > 0 && skin / 1000 == championId)
+            if (withSkin && skin > 0 && skin / 1000 == championId)
             {
                 var result = await api.Request("PATCH", "/lol-champ-select/v1/session/my-selection", "{\"selectedSkinId\":" + skin + "}");
                 if (result.Ok) done.Add("skin");
@@ -710,6 +742,97 @@ namespace Conduit
             if (done.Count > 0) message += JoinList(done) + " set. ";
             if (problems.Count > 0) message += Capitalize(string.Join(", ", problems)) + ".";
             SetStatus(message.Trim());
+        }
+
+        /**
+         * Works out which spells to send, following the client's Smite rule and the game mode.
+         * A jungler always has Smite: if the setup has none, autopick keeps Flash (or the first
+         * spell) and puts Smite on the key the client already has it on. Other positions never
+         * get Smite. A spell that is left out is replaced by the spell already on that key.
+         * Returns the spells (0 and 0 to send nothing) and a note about what was changed.
+         */
+        private async Task<Tuple<long, long, string>> ResolveSpells(long want1, long want2, string position, long have1, long have2)
+        {
+            string note = null;
+
+            if (position == "jungle")
+            {
+                if (want1 != SMITE && want2 != SMITE)
+                {
+                    var keep = want1 == FLASH || want2 == FLASH ? FLASH : want1;
+                    var smiteFirst = have1 == SMITE ? true : have2 == SMITE ? false : keep == want2;
+                    want1 = smiteFirst ? SMITE : keep;
+                    want2 = smiteFirst ? keep : SMITE;
+                }
+            }
+            else if (position != "" && (want1 == SMITE || want2 == SMITE))
+            {
+                note = "Smite is only for junglers, so autopick left it out";
+                if (want1 == SMITE) want1 = have1 != SMITE && have1 != want2 ? have1 : 0;
+                if (want2 == SMITE) want2 = have2 != SMITE && have2 != want1 ? have2 : 0;
+            }
+
+            // Spells this game mode doesn't have, like Smite in ARAM.
+            var mode = await GameMode();
+            await LoadSpellModes();
+            Func<long, bool> inMode = id => mode == null || spellModes == null || !spellModes.ContainsKey(id) || spellModes[id].Contains(mode);
+            if (want1 > 0 && !inMode(want1))
+            {
+                note = note ?? "some of your spells aren't in this game mode, so autopick left them out";
+                want1 = have1 != want2 && inMode(have1) ? have1 : 0;
+            }
+            if (want2 > 0 && !inMode(want2))
+            {
+                note = note ?? "some of your spells aren't in this game mode, so autopick left them out";
+                want2 = have2 != want1 && inMode(have2) ? have2 : 0;
+            }
+
+            if (want1 <= 0 || want2 <= 0 || want1 == want2) return Tuple.Create(0L, 0L, note);
+            return Tuple.Create(want1, want2, note);
+        }
+
+        /**
+         * Checks that the client has the spells, instead of assuming it.
+         */
+        private async Task<bool> VerifySpells(long spell1, long spell2)
+        {
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                var check = await api.Request("GET", "/lol-champ-select/v1/session", null);
+                var session = check.Ok ? check.Content as JsonObject : null;
+                if (session != null)
+                {
+                    var me = Num(session, "localPlayerCellId");
+                    var local = Members(session, "myTeam").FirstOrDefault(x => Num(x, "cellId") == me);
+                    if (local != null && Num(local, "spell1Id") == spell1 && Num(local, "spell2Id") == spell2) return true;
+                }
+                await Task.Delay(200);
+            }
+            return false;
+        }
+
+        private async Task<string> GameMode()
+        {
+            var gameflow = await api.Request("GET", "/lol-gameflow/v1/session", null);
+            var queue = Get(Get(gameflow.Content as JsonObject, "gameData") as JsonObject, "queue") as JsonObject;
+            var mode = Str(queue, "gameMode");
+            return string.IsNullOrEmpty(mode) ? null : mode;
+        }
+
+        private async Task LoadSpellModes()
+        {
+            if (spellModes != null) return;
+
+            var result = await api.Request("GET", "/lol-game-data/assets/v1/summoner-spells.json", null);
+            var list = result.Content as JsonArray;
+            if (!result.Ok || list == null) return;
+
+            var modes = new Dictionary<long, List<string>>();
+            foreach (var spell in list.OfType<JsonObject>())
+            {
+                modes[Num(spell, "id")] = (Get(spell, "gameModes") as JsonArray ?? new JsonArray()).OfType<string>().ToList();
+            }
+            spellModes = modes;
         }
 
         /**
@@ -1071,7 +1194,10 @@ namespace Conduit
             public DateTime PickLockAt;
             public bool PickStoodDown;
 
-            public long ExtrasFor;
+            // Champion and position the skin, spells and runes were set for, and the setup used.
+            public string ExtrasFor;
+            public JsonObject ExtrasEntry;
+            public DateTime SettleUntil = DateTime.MinValue;
 
             public SessionProgress(string key)
             {

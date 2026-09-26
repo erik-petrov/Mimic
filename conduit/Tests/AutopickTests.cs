@@ -26,6 +26,10 @@ namespace Conduit.Tests
 
         // What the client says can be banned. Null answers [-1], like the real client did.
         public JsonArray Bannable;
+
+        // The game mode of this champ select, and whether the client ignores spell changes.
+        public string GameMode = "CLASSIC";
+        public bool IgnoreSpells;
         private long nextPageId = 1000;
 
         public static readonly Dictionary<long, string> NAMES = new Dictionary<long, string>
@@ -92,7 +96,12 @@ namespace Conduit.Tests
                 }
                 return Ok(list);
             }
-            if (method == "GET" && path == "/lol-gameflow/v1/session") return Ok(SimpleJson.DeserializeObject("{\"map\":{\"id\":11}}"));
+            if (method == "GET" && path == "/lol-gameflow/v1/session") return Ok(SimpleJson.DeserializeObject("{\"map\":{\"id\":11},\"gameData\":{\"queue\":{\"gameMode\":\"" + GameMode + "\"}}}"));
+            if (method == "GET" && path == "/lol-champ-select/v1/session") return Ok(Copy(Session));
+            if (method == "GET" && path == "/lol-game-data/assets/v1/summoner-spells.json")
+            {
+                return Ok(SimpleJson.DeserializeObject("[{\"id\":4,\"gameModes\":[\"CLASSIC\",\"ARAM\"]},{\"id\":7,\"gameModes\":[\"CLASSIC\",\"ARAM\"]},{\"id\":11,\"gameModes\":[\"CLASSIC\"]},{\"id\":12,\"gameModes\":[\"CLASSIC\"]},{\"id\":14,\"gameModes\":[\"CLASSIC\",\"ARAM\"]},{\"id\":32,\"gameModes\":[\"ARAM\"]}]"));
+            }
             if (method == "GET" && path.StartsWith("/lol-perks/v1/recommended-pages/champion/"))
             {
                 var champion = long.Parse(path.Split('/')[5]);
@@ -135,6 +144,17 @@ namespace Conduit.Tests
             {
                 var change = (JsonObject) SimpleJson.DeserializeObject(body);
                 var me = Me();
+
+                // The client's Smite rule: a jungler keeps Smite, nobody else gets it.
+                if (change.ContainsKey("spell1Id"))
+                {
+                    var smite = (long) change["spell1Id"] == 11 || (long) change["spell2Id"] == 11;
+                    var position = (string) me["assignedPosition"];
+                    if (position == "jungle" && !smite) return Fail(400, "Junglers must take Smite");
+                    if (position != "" && position != "jungle" && smite) return Fail(400, "Only junglers can take Smite");
+                    if (IgnoreSpells) return new ApiResult { Status = 204 };
+                }
+
                 foreach (var entry in change) me[entry.Key] = entry.Value;
                 PublishLater();
                 return new ApiResult { Status = 204 };
@@ -356,6 +376,26 @@ namespace Conduit.Tests
                 ((JsonObject) c.Session["timer"])["adjustedTimeLeftInPhase"] = timeLeft;
                 c.Action(actionId)["isInProgress"] = true;
             });
+        }
+
+        // A lane swap: we get a new position, and the client swaps Smite like it does.
+        public void SwapTo(string position, long spell1, long spell2)
+        {
+            Change(c =>
+            {
+                c.Me()["assignedPosition"] = position;
+                c.Me()["spell1Id"] = spell1;
+                c.Me()["spell2Id"] = spell2;
+            });
+        }
+
+        public void SetMySpells(long spell1, long spell2)
+        {
+            lock (this)
+            {
+                Me()["spell1Id"] = spell1;
+                Me()["spell2Id"] = spell2;
+            }
         }
 
         public void OtherPicks(long actionId, long championId)
@@ -637,6 +677,117 @@ namespace Conduit.Tests
                 c.StartBans();
                 c.StartTurn(13);
                 WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":91,\"completed\":true}"), "lock in Talon");
+            });
+
+            // Smite. The fake client refuses Smite off jungle and refuses spells without it on jungle.
+            Func<string, string, JsonObject> spells = (role, pair) => Setup(role, "[{\"championId\":64,\"runes\":{\"type\":\"none\"},\"spell1Id\":" + pair.Split(',')[0] + ",\"spell2Id\":" + pair.Split(',')[1] + "}]", "[]");
+
+            Scenario("jungle with Flash + Ignite: keeps Flash, Smite on the key the client has it (F)", spells("jungle", "4,14"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true);
+                c.SetMySpells(4, 11);
+                c.StartBans();
+                c.StartTurn(13);
+                WaitFor(() => e.Status.StartsWith("Lee Sin: "), "status");
+                Equal("Lee Sin: Spells set.", e.Status, "status");
+                True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":4,\"spell2Id\":11}"), "Flash + Smite");
+            });
+
+            Scenario("jungle with Flash + Ignite, client has Smite on D: Smite stays on D", spells("jungle", "4,14"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true);
+                c.SetMySpells(11, 4);
+                c.StartBans();
+                c.StartTurn(13);
+                WaitFor(() => e.Status.StartsWith("Lee Sin: "), "status");
+                True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":11,\"spell2Id\":4}"), "Smite + Flash");
+            });
+
+            Scenario("jungle without Flash: keeps the first spell next to Smite", spells("jungle", "14,12"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true);
+                c.SetMySpells(4, 11);
+                c.StartBans();
+                c.StartTurn(13);
+                WaitFor(() => e.Status.StartsWith("Lee Sin: "), "status");
+                True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":14,\"spell2Id\":11}"), "Ignite + Smite");
+            });
+
+            Scenario("jungle setup with Smite on D is sent as it is", spells("jungle", "11,4"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true);
+                c.SetMySpells(4, 11);
+                c.StartBans();
+                c.StartTurn(13);
+                WaitFor(() => e.Status.StartsWith("Lee Sin: "), "status");
+                True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":11,\"spell2Id\":4}"), "Smite + Flash");
+            });
+
+            Scenario("All roles used as jungler: Flash + Smite", spells("any", "4,14"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true);
+                c.SetMySpells(4, 11);
+                c.StartBans();
+                c.StartTurn(13);
+                WaitFor(() => e.Status == "Lee Sin: Spells set.", "status");
+                True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":4,\"spell2Id\":11}"), "Flash + Smite");
+            });
+
+            Scenario("mid with an old Flash + Smite setup: Smite left out, the client's spell stays, and it says so", spells("middle", "4,11"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true, "middle");
+                c.SetMySpells(4, 14);
+                c.StartBans();
+                c.StartTurn(13);
+                WaitFor(() => e.Status.StartsWith("Lee Sin: "), "status");
+                Equal("Lee Sin: Spells set. Smite is only for junglers, so autopick left it out.", e.Status, "status");
+                True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":4,\"spell2Id\":14}"), "Flash + Ignite");
+            });
+
+            Scenario("a lane swap from jungle to bot after lock-in: spells and runes set again, without Smite", Setup("jungle", "[{\"championId\":64,\"skinId\":64001,\"spell1Id\":4,\"spell2Id\":11}]", "[]"), (c, e) =>
+            {
+                Autopick.SWAP_SETTLE_MS = 300;
+                try
+                {
+                    c.Session = FakeClient.NewSession("a", true);
+                    c.SetMySpells(4, 11);
+                    c.StartBans();
+                    c.StartTurn(13);
+                    WaitFor(() => e.Status == "Lee Sin: Spells, skin and runes set.", "first setup");
+                    lock (c.Calls) True(c.Calls.Any(x => x.Contains("/position/JUNGLE/")), "jungle runes");
+
+                    // Bot has no setup of its own: the champion keeps the jungle one.
+                    c.SwapTo("bottom", 4, 7);
+                    WaitFor(() => Saw("Lee Sin: Spells and runes set. Smite is only for junglers, so autopick left it out."), "second setup", 5000);
+                    lock (c.Calls) True(c.Calls.Any(x => x.Contains("/position/BOTTOM/")), "bot runes");
+                    Equal("PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":4,\"spell2Id\":7}", c.Writes().Last(x => x.Contains("spell1Id")), "Flash + Heal on bot");
+                    Equal(1, c.Writes().Count(x => x.Contains("selectedSkinId")), "skin sent once");
+                }
+                finally
+                {
+                    Autopick.SWAP_SETTLE_MS = 1500;
+                }
+            });
+
+            Scenario("ARAM: Smite isn't in the mode, so the client's spell stays", spells("any", "4,11"), (c, e) =>
+            {
+                c.GameMode = "ARAM";
+                c.Session = FakeClient.NewSession("a", false);
+                c.Publish();
+                WaitFor(() => e.Status.StartsWith("Lee Sin: "), "status");
+                True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":4,\"spell2Id\":7}"), "Flash + Heal");
+                True(e.Status.Contains("aren't in this game mode"), e.Status);
+            });
+
+            Scenario("the client keeps other spells: says so", spells("jungle", "4,11"), (c, e) =>
+            {
+                c.IgnoreSpells = true;
+                c.Session = FakeClient.NewSession("a", true);
+                c.SetMySpells(11, 4);
+                c.StartBans();
+                c.StartTurn(13);
+                WaitFor(() => e.Status.StartsWith("Lee Sin: "), "status", 5000);
+                Equal("Lee Sin: The League client kept other spells.", e.Status, "status");
             });
 
             Scenario("filled into a role with nothing set up: uses All roles for picks and bans", Setup("any", LEE_FULL, "[157]"), (c, e) =>

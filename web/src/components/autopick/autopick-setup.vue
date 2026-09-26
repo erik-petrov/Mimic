@@ -104,6 +104,7 @@
                     </div>
                     <i class="ion-chevron-right chevron"></i>
                 </div>
+                <div class="note smite-warning" v-if="smiteWarning">{{ smiteWarning }}</div>
 
                 <span class="section-header">Runes</span>
                 <div class="option runes-recommended" :class="{ selected: currentPick.runes.type === 'recommended' }" @click="chooseRunes('recommended')">
@@ -152,6 +153,14 @@
             </div>
 
             <div class="content" v-else-if="view === 'spell'">
+                <template v-if="role === 'jungle'">
+                    <div class="note">Junglers always have Smite. Choose its key, then the spell next to it.</div>
+                    <div class="smite-keys">
+                        <a class="smite-key smite-d" :class="{ selected: smiteOnD }" @click="setSmiteKey(true)">Smite on D</a>
+                        <a class="smite-key smite-f" :class="{ selected: !smiteOnD }" @click="setSmiteKey(false)">Smite on F</a>
+                    </div>
+                </template>
+                <div class="note" v-else-if="role === 'any'">When you're jungle, autopick keeps Flash (or your first spell) and adds Smite.</div>
                 <div class="option spell-none" v-if="spellSlot === 1" :class="{ selected: !currentPick.spell1Id }" @click="chooseSpell(0)">
                     <span class="name">Don't change</span>
                     <span class="detail">Keep the spells you have</span>
@@ -399,6 +408,29 @@
 
     .remove-pick
         margin 40px 20px 20px 20px
+
+    .smite-warning
+        color #e8a33d
+
+    .smite-keys
+        display flex
+        margin 0 20px 20px 20px
+
+        .smite-key
+            flex 1
+            padding 20px
+            text-align center
+            font-size 38px
+            border 2px solid #785a28
+            color #a09b8c
+
+            &.selected
+                border-color #c89c3c
+                background-color rgba(200, 156, 60, 0.2)
+                color #f0e6d2
+
+            & + .smite-key
+                margin-left 20px
 
     .classic-toggle
         display flex
