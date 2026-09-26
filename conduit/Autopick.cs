@@ -435,6 +435,11 @@ namespace Conduit
                 RefreshLockInDelay();
                 p.Pickable = await IdSet("/lol-champ-select/v1/pickable-champion-ids");
                 p.Bannable = await IdSet("/lol-champ-select/v1/bannable-champion-ids");
+
+                // The client can answer [-1] ("no ban") for the whole champ select while every
+                // champion can be banned. A list without champions says nothing, so ignore it.
+                if (p.Pickable != null && !p.Pickable.Any(x => x > 0)) p.Pickable = null;
+                if (p.Bannable != null && !p.Bannable.Any(x => x > 0)) p.Bannable = null;
                 await LoadChampionNames();
             }
 
@@ -451,7 +456,9 @@ namespace Conduit
                 copy["championId"] = id;
                 return copy;
             }).ToList();
-            bans = bans.Select(x => ForThisQueue(x, p.Bannable)).ToList();
+            // Without a list of bannable champions, the pickable ones tell which version this queue uses.
+            var classicQueue = p.Pickable != null && p.Pickable.Any(x => x >= CLASSIC_OFFSET);
+            bans = bans.Select(x => p.Bannable != null ? ForThisQueue(x, p.Bannable) : p.Pickable != null ? ToVersion(x, classicQueue) : x).ToList();
 
             // Champions that can't be picked or banned anymore.
             var banned = new HashSet<long>(actions.Where(a => Str(a, "type") == "ban" && Bool(a, "completed")).Select(a => Num(a, "championId")));
@@ -856,6 +863,16 @@ namespace Conduit
             var classic = championId >= CLASSIC_OFFSET ? " (Classic)" : "";
             if (championNames != null && championNames.TryGetValue(championId, out name) && !string.IsNullOrEmpty(name)) return name + classic;
             return "champion " + championId;
+        }
+
+        /**
+         * Returns the League Classic version of the champion if classic, else its normal version.
+         */
+        private static long ToVersion(long championId, bool classic)
+        {
+            if (classic && championId < CLASSIC_OFFSET) return championId + CLASSIC_OFFSET;
+            if (!classic && championId >= CLASSIC_OFFSET) return championId - CLASSIC_OFFSET;
+            return championId;
         }
 
         /**

@@ -23,6 +23,9 @@ namespace Conduit.Tests
 
         // Champions this champ select offers. Normal champions unless a test changes it.
         public long[] Offered = NAMES.Keys.ToArray();
+
+        // What the client says can be banned. Null answers [-1], like the real client did.
+        public JsonArray Bannable;
         private long nextPageId = 1000;
 
         public static readonly Dictionary<long, string> NAMES = new Dictionary<long, string>
@@ -71,7 +74,8 @@ namespace Conduit.Tests
         private ApiResult Handle(string method, string path, string body)
         {
             if (method == "GET" && path == "/lol-champ-select/v1/pickable-champion-ids") return Ok(Arr(Offered));
-            if (method == "GET" && path == "/lol-champ-select/v1/bannable-champion-ids") return Ok(Arr(Offered));
+            // The real client answered [-1] ("no ban") for a whole draft in which every champion could be banned.
+            if (method == "GET" && path == "/lol-champ-select/v1/bannable-champion-ids") return Ok(Bannable ?? Arr(-1));
             if (method == "GET" && path == "/lol-game-data/assets/v1/champion-summary.json")
             {
                 var list = new JsonArray();
@@ -616,6 +620,15 @@ namespace Conduit.Tests
                 WaitFor(() => e.Status.StartsWith("Lee Sin (Classic): "), "extras");
                 True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":4,\"spell2Id\":11}"), "spells set");
                 True(!c.Writes().Any(x => x.Contains("selectedSkinId")), "no skin of normal Lee Sin");
+            });
+
+            Scenario("a real list of bannable champions is respected", Setup("jungle", LEE_FULL, "[157,238]"), (c, e) =>
+            {
+                c.Bannable = FakeClient.Arr(238, 29, 32);
+                c.Session = FakeClient.NewSession("a", true);
+                c.Publish();
+                c.StartBans();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/1 {\"championId\":238,\"completed\":true}"), "ban Zed, since Yasuo can't be banned");
             });
 
             Scenario("a League Classic champion in the setup: its normal version in normal queues", Setup("jungle", "[{\"championId\":60091}]", "[]"), (c, e) =>

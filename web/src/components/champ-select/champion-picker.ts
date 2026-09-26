@@ -58,8 +58,20 @@ export default class ChampionPicker extends Vue {
         const allActions = (<ChampSelectAction[]>[]).concat(...this.state.actions);
         const bannedChamps = allActions.filter(x => x.type === "ban" && x.completed).map(x => x.championId);
         // -1 is the "no ban" entry, which is not a champion.
-        return (isCurrentlyBanning ? this.bannableChampions : this.pickableChampions)
+        return (isCurrentlyBanning ? this.banOptions : this.pickableChampions)
             .filter(x => x > 0 && bannedChamps.indexOf(x) === -1);
+    }
+
+    /**
+     * @returns the champions that can be banned. The client can answer [-1] ("no ban") for the
+     * whole champ select while every champion can be banned; then it's every champion of the
+     * version this queue uses (League Classic champions have 60000 added to their id).
+     */
+    get banOptions(): number[] {
+        if (this.bannableChampions.some(x => x > 0)) return this.bannableChampions;
+
+        const classic = this.pickableChampions.some(x => x >= 60000);
+        return Object.keys(this.$parent.champions).map(Number).filter(x => x > 0 && (x >= 60000) === classic);
     }
 
     /**
