@@ -1,37 +1,55 @@
 import Vue from "vue";
 import Component from "vue-class-component";
 import Root from "../root/root";
-import { GAMEMODE_NAMES } from "@/constants";
 
 /**
- * Represents a game queue. These are shown based on availability and category.
+ * Represents a game queue. Only the properties used here.
  */
 interface GameQueue {
-    category: string;
-    gameMode: string;
-    description: string;
     id: number;
-    queueAvailability: string;
     mapId: number;
+    gameMode: string;
+    name?: string;
+    description: string;
+    category: string;
+    queueAvailability: string;
+    isVisible?: boolean;
+    gameSelectModeGroup?: string;
+    gameSelectCategory?: string;
+    gameSelectPriority?: number;
 }
 
-type MappedQueueList = { [key: string]: GameQueue[] };
+/**
+ * A group of queues, shown as one icon, like the client's game select.
+ */
+interface Section {
+    key: string;
+    title: string;
+    icon: string;
+    queues: GameQueue[];
+}
+
+// The client's mode groups, in the order the client shows them, with their titles and map icons.
+// Co-op vs. AI queues get their own section. Unknown groups go last, with the rotating mode icon.
+const SECTIONS: { key: string, title: string, icon: string }[] = [
+    { key: "kSummonersRift", title: "Summoner's Rift", icon: "sr" },
+    { key: "kARAM", title: "ARAM", icon: "ha" },
+    { key: "kJade", title: "League Classic", icon: "rgm" },
+    { key: "kAlternativeLeagueGameModes", title: "Special Modes", icon: "rgm" },
+    { key: "kTeamfightTactics", title: "Teamfight Tactics", icon: "tft" },
+    { key: "bots", title: "Co-op vs. AI", icon: "sr" }
+];
 
 /**
- * Quick note: All the logic for displaying which queues where is ripped directly from
- * the League client. If the logic seems dodgy or spaghetti, you know who to blame. <3
- *
- * Note that we only show PVP modes. Adding in a tabbing system for the few people that
- * do bots is a bit excessive, especially considering the slow queue time. Maybe if people
- * show interest.
+ * Lists every queue the client shows in its game select: visible PvP and Co-op vs. AI queues,
+ * grouped and ordered the way the client does it. Queues that are visible but switched off (like
+ * Ranked 5v5 outside its hours) are listed as closed and can't be chosen.
  */
 @Component({ })
 export default class CreateLobby extends Vue {
     $root: Root;
 
     iconPaths: { [key: string]: string } = {};
-    enabledGameQueues: number[] = [];
-    defaultGameQueues: number[] = [];
     queues: GameQueue[] = [];
 
     selectedSection = "";
@@ -52,150 +70,110 @@ export default class CreateLobby extends Vue {
     }
 
     mounted() {
-        // Helper function to return to the first queue of the first map if
-        // the set of available queues changes. This is easier than diffing and
-        // checking if the current queue is still available, and it is very
-        // unlikely that queues will change while the user is active anyway.
-        const resetCurrentSelection = () => {
-            if (!this.sections.length) {
-                this.selectedSection = "";
-                this.selectedQueueId = 0;
-                return;
-            }
+        this.$root.observe("/lol-game-queues/v1/queues", data => {
+            this.queues = data.status === 200 && Array.isArray(data.content) ? data.content : [];
 
-            // Queues changed, update
-            this.selectedSection = this.sections[0];
-            this.selectedQueueId = this.availableQueues[this.selectedSection][0].id;
+            // Keep the choice if it is still there, else start at the first open queue.
+            const section = this.sections.filter(x => x.key === this.selectedSection)[0];
+            if (!section || !section.queues.some(x => x.id === this.selectedQueueId && isOpen(x))) {
+                const first = this.sections.filter(x => x.queues.some(isOpen))[0] || this.sections[0];
+                if (first) this.selectSection(first.key);
+                else {
+                    this.selectedSection = "";
+                    this.selectedQueueId = 0;
+                }
+            }
+        });
+    }
+
+    destroyed() {
+        this.$root.unobserve("/lol-game-queues/v1/queues");
+    }
+
+    /**
+     * @returns the sections with their queues, highest priority first like the client
+     */
+    get sections(): Section[] {
+        const shown = this.queues.filter(x => x.isVisible !== false && (x.category === "PvP" || x.category === "VersusAi"));
+        const sectionOf = (queue: GameQueue) => {
+            if (queue.category === "VersusAi" || queue.gameSelectCategory === "kVersusAI") return "bots";
+            return queue.gameSelectModeGroup || "kAlternativeLeagueGameModes";
         };
 
-        // Observe enabled and default game queues.
-        this.$root.observe("/lol-platform-config/v1/namespaces/LcuSocial/EnabledGameQueues", data => {
-            this.enabledGameQueues = data.status === 200 ? data.content.split(",").map((x: string) => +x) : [];
-            resetCurrentSelection();
+        const keys = SECTIONS.map(x => x.key);
+        shown.forEach(x => {
+            if (keys.indexOf(sectionOf(x)) === -1) keys.push(sectionOf(x));
         });
 
-        // Observe enabled and default game queues.
-        this.$root.observe("/lol-platform-config/v1/namespaces/LcuSocial/DefaultGameQueues", data => {
-            this.defaultGameQueues = data.status === 200 ? data.content.split(",").map((x: string) => +x) : [];
-            resetCurrentSelection();
-        });
+        return keys.map(key => {
+            const known = SECTIONS.filter(x => x.key === key)[0];
+            return {
+                key,
+                title: known ? known.title : "Other Modes",
+                icon: known ? known.icon : "rgm",
+                queues: shown
+                    .filter(x => sectionOf(x) === key)
+                    .sort((a, b) => (b.gameSelectPriority || 0) - (a.gameSelectPriority || 0) || a.id - b.id)
+            };
+        }).filter(x => x.queues.length > 0);
+    }
 
-        // Update queue maps.
-        this.$root.observe("/lol-game-queues/v1/queues", data => {
-            this.queues = data.status === 200 ? data.content : [];
-            resetCurrentSelection();
-        });
+    get currentSection(): Section | undefined {
+        return this.sections.filter(x => x.key === this.selectedSection)[0];
     }
 
     /**
-     * Sorts queues by mapId-gameMode, limited to only the queues that are actually
-     * available. Also only recomputed if its dependencies change.
+     * Selects the specified section and its first open queue.
      */
-    get availableQueues(): MappedQueueList {
-        const ret: MappedQueueList = {};
+    selectSection(key: string) {
+        this.selectedSection = key;
+        const section = this.currentSection;
+        const open = section ? section.queues.filter(isOpen) : [];
+        this.selectedQueueId = open.length ? open[0].id : 0;
+    }
 
-        // Collect queues.
-        for (const queue of this.queues) {
-            if (queue.category !== "PvP") continue; // only render pvp queues
-            if (queue.queueAvailability !== "Available" || !this.enabledGameQueues.includes(queue.id)) continue;
-
-            const key = queue.mapId + "-" + queue.gameMode;
-            if (!ret[key]) ret[key] = [];
-
-            ret[key].push(queue);
-        }
-
-        // Sort queues on whether they appear in the defaults list, and if yes where.
-        for (const queues of Object.values(ret)) {
-            queues.sort((a, b) => {
-                const aDefaultIndex = this.defaultGameQueues.indexOf(a.id);
-                const bDefaultIndex = this.defaultGameQueues.indexOf(b.id);
-
-                if (aDefaultIndex !== -1) {
-                    if (bDefaultIndex !== -1) {
-                        // Both are in the defaults, return the one that appears earlier.
-                        return aDefaultIndex - bDefaultIndex;
-                    }
-
-                    // Only a appears in the defaults, so it should go first.
-                    return -1;
-                }
-
-                // Only b appears in the deffaults, so it should go first.
-                if (bDefaultIndex !== -1) {
-                    return 1;
-                }
-
-                // Neither are in the defaults, we don't care about the order.
-                return 0;
-            });
-        }
-
-        return ret;
+    selectQueue(queue: GameQueue) {
+        if (isOpen(queue)) this.selectedQueueId = queue.id;
     }
 
     /**
-     * Sorts the available sections (mapId-gamemode) by the order in which they should
-     * appear on the screen.
+     * @returns what to call a queue. Its description tells queues of one mode apart ("Draft Pick",
+     * "Ranked Flex"), but special modes need their name: Nexus Blitz's description is "Blind Pick".
      */
-    get sections(): string[] {
-        return Object.keys(this.availableQueues).sort((a, b) => {
-            const [aMap, aGameMode] = a.split("-");
-            const [bMap, bGameMode] = b.split("-");
-
-            // First, prefer map 11 (rift) over anything else.
-            if (aMap === "11" && bMap !== "11") return -1;
-            if (bMap === "11") return 1;
-
-            // Then, prefer classic over anything other.
-            if (aGameMode === "CLASSIC" && bGameMode !== "CLASSIC") return -1;
-            if (bGameMode === "CLASSIC") return 1;
-
-            // Finally, prefer ARAM over anything else.
-            if (aGameMode === "ARAM" && bGameMode !== "ARAM") return -1;
-            if (bGameMode === "ARAM") return 1;
-
-            // Else, return 0.
-            return 0;
-        });
+    queueLabel(queue: GameQueue) {
+        if (this.selectedSection === "kAlternativeLeagueGameModes" && queue.name) return queue.name;
+        return queue.description || queue.name || "Queue " + queue.id;
     }
 
-    /**
-     * Selects the specified section, setting the current queue to
-     * the first option within the specified section.
-     */
-    selectSection(section: string) {
-        this.selectedSection = section;
-        this.selectedQueueId = this.availableQueues[section][0].id;
+    isOpen(queue: GameQueue) {
+        return isOpen(queue);
     }
 
     /**
      * @returns the url to the map icon for the specified section
      */
-    sectionIcon(section: string, extra: string) {
-        const mapName = (<any>{
-            "10-CLASSIC": "tt",
-            "11-CLASSIC": "sr",
-            "12-ARAM": "ha",
-            "22-TFT": "tft"
-        })[section] || "rgm";
-
-        return this.iconPaths[mapName + "-" + extra];
+    sectionIcon(section: Section, extra: string) {
+        return this.iconPaths[section.icon + "-" + extra];
     }
 
     /**
      * Creates a lobby with the currently chosen queue.
      */
     createLobby() {
+        if (!this.selectedQueueId) return;
         this.$root.request("/lol-lobby/v2/lobby", "POST", JSON.stringify({
             queueId: this.selectedQueueId
         }));
     }
 
-    /**
-     * @returns the gamemode name for the currently selected section
-     */
     get sectionTitle() {
-        return GAMEMODE_NAMES[this.selectedSection.toLowerCase()] || "Rotating Game Mode";
+        return this.currentSection ? this.currentSection.title : "";
     }
+}
+
+/**
+ * @returns whether the queue can be joined right now
+ */
+function isOpen(queue: GameQueue): boolean {
+    return queue.queueAvailability === "Available";
 }

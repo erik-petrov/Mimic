@@ -150,6 +150,9 @@ export default class AutopickSetup extends Vue {
             if (x && x.id > 0 && typeof x.name === "string" && x.name) names[x.id] = x.name;
         }));
         this.champions = Object.keys(names).map(id => ({ id: +id, name: names[+id] + (+id >= CLASSIC_OFFSET ? " (Classic)" : "") }));
+        if (!this.champions.length) {
+            this.$root.showNotification("Could not load the champion list (errors " + summary.status + " and " + owned.status + ").");
+        }
 
         if (isList(owned)) {
             this.pickable = owned.content

@@ -11,6 +11,9 @@ import AutopickSetup from "../autopick/autopick-setup.vue";
 import { hasAutopickSetup, setAutopickEnabled } from "../autopick/autopick-state";
 import { QueueState } from "../queue/queue";
 
+// Where the League client keeps the roles you chose last.
+const ROLE_SETTINGS = "/lol-settings/v2/account/LCUPreferences/partiesPositionPreferences";
+
 /**
  * Represents a member of the lobby. The summoner
  * property is manually fetched by us, and not a part
@@ -42,6 +45,7 @@ export interface InvitationMetadata {
  * list of properties that only contain the ones we are using.
  */
 export interface LobbyState {
+    partyId?: string;
     gameConfig: {
         queueId: number;
         mapId: number;
@@ -74,6 +78,9 @@ export default class Lobby extends Vue {
 
     showingRolePicker = false;
     pickingFirstRole = false;
+
+    // The lobby (party and queue) the saved roles were applied to, so it happens once per lobby.
+    savedRolesAppliedTo = "";
 
     showingInvites = false;
     showingAutopick = false;
@@ -131,7 +138,37 @@ export default class Lobby extends Vue {
 
         // Propagate changes.
         this.state = state;
+
+        this.applySavedRoles(state);
     };
+
+    /**
+     * A new lobby starts with default roles; the League client fills in the roles you used last
+     * only once you look at it or start searching. Do the same right away, once per lobby, and
+     * only while the roles are still the default ones.
+     */
+    async applySavedRoles(state: LobbyState) {
+        if (!state.gameConfig.showPositionSelector) return;
+
+        const key = (state.partyId || "") + ":" + state.gameConfig.queueId;
+        if (this.savedRolesAppliedTo === key) return;
+        this.savedRolesAppliedTo = key;
+
+        const first = state.localMember.firstPositionPreference;
+        const second = state.localMember.secondPositionPreference;
+        const isDefault = first === "UNSELECTED" || (first === "FILL" && second === "UNSELECTED");
+        if (!isDefault) return;
+
+        const saved = await this.$root.request(ROLE_SETTINGS);
+        const roles = saved.status === 200 && saved.content && saved.content.data;
+        if (!roles || !roles.firstPreference || roles.firstPreference === "UNSELECTED") return;
+        if (roles.firstPreference === first && roles.secondPreference === second) return;
+
+        this.$root.request("/lol-lobby/v2/lobby/members/localMember/position-preferences", "PUT", JSON.stringify({
+            firstPreference: roles.firstPreference,
+            secondPreference: roles.secondPreference || "UNSELECTED"
+        }));
+    }
 
     /**
      * @returns subtitle shown in the lobby view, detailing queue and map
@@ -242,9 +279,21 @@ export default class Lobby extends Vue {
     /**
      * Invoked from the role picker, updates the user with the new roles.
      */
-    updateRoles(newRoles: any) {
+    updateRoles(newRoles: { firstPreference: string, secondPreference: string }) {
         this.$root.request("/lol-lobby/v2/lobby/members/localMember/position-preferences", "PUT", JSON.stringify(newRoles));
         this.showingRolePicker = false;
+
+        // Remember them where the League client does, so the next lobby starts with them.
+        this.$root.request(ROLE_SETTINGS, "PATCH", JSON.stringify({
+            schemaVersion: 0,
+            data: {
+                firstPreference: newRoles.firstPreference,
+                secondPreference: newRoles.secondPreference,
+                thirdPreference: "UNSELECTED",
+                fourthPreference: "UNSELECTED",
+                fifthPreference: "UNSELECTED"
+            }
+        }));
     }
 
     /**
