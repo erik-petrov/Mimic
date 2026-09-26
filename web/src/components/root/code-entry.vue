@@ -1,16 +1,13 @@
 <template>
     <div class="code-entry">
-        <input type="number" ref="d0" data-next="d1" @keyup="nextCharacter" @keydown="maybePreviousCharacter" placeholder="0">
-        <input type="number" ref="d1" data-next="d2" data-prev="d0" @keyup="nextCharacter" @keydown="maybePreviousCharacter" placeholder="0">
-        <input type="number" ref="d2" data-next="d3" data-prev="d1" @keyup="nextCharacter" @keydown="maybePreviousCharacter" placeholder="0">
-        <input type="number" ref="d3" data-next="d4" data-prev="d2" @keyup="nextCharacter" @keydown="maybePreviousCharacter" placeholder="0">
-        <input type="number" ref="d4" data-next="d5" data-prev="d3" @keyup="nextCharacter" @keydown="maybePreviousCharacter" placeholder="0">
-        <input type="number" ref="d5" data-prev="d4" @keyup="nextCharacter" @keydown="maybePreviousCharacter" placeholder="0">
+        <input ref="input" type="text" :value="value" @input="changed" placeholder="Code"
+               maxlength="14" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
     </div>
 </template>
 
 <script lang="ts">
     import { Component, Prop, Vue } from "vue-property-decorator";
+    import { normalizeCode } from "./code";
 
     @Component({})
     export default class CodeEntry extends Vue {
@@ -18,64 +15,25 @@
         value: string;
 
         mounted() {
-            // Import previous value.
-            const keys = Object.keys(this.$refs);
-
-            this.value.split("").forEach((digit, idx) => {
-                (<any>this.$refs[keys[idx]]).value = digit;
-            });
-
-            for (const key of keys) {
-                (<any>this.$refs[key]).addEventListener("focus", () => {
-                    document.body.classList.add("in-input");
-                });
-
-                (<any>this.$refs[key]).addEventListener("blur", () => {
-                    document.body.classList.remove("in-input");
-                });
-            }
+            const input = <HTMLInputElement>this.$refs.input;
+            input.addEventListener("focus", () => document.body.classList.add("in-input"));
+            input.addEventListener("blur", () => document.body.classList.remove("in-input"));
         }
 
-        nextCharacter(ev: KeyboardEvent) {
-            const tgt: HTMLInputElement = <HTMLInputElement>ev.target;
-            const next = tgt.getAttribute("data-next");
+        changed(ev: Event) {
+            const input = <HTMLInputElement>ev.target;
+            const code = normalizeCode(input.value);
 
-            if (tgt.value.length > 0 && next) {
-                // Go to next.
-                (<any>this.$refs[next]).focus();
-            }
-
-            const total = Object.keys(this.$refs).map(x => (<any>this.$refs[x]).value).join("");
-            this.$emit("input", total);
-        }
-
-        maybePreviousCharacter(ev: KeyboardEvent) {
-            const tgt: HTMLInputElement = <HTMLInputElement>ev.target;
-
-            // If this is backspace and we're currently empty, go back to previous.
-            if (ev.which === 8 && !tgt.value) {
-                const prev = tgt.getAttribute("data-prev");
-                if (!prev) return;
-
-                // Clear previous and focus.
-                (<any>this.$refs[prev]).value = "";
-                (<any>this.$refs[prev]).focus();
-
-                return;
-            }
-
-            // If there was already a value in here, don't accept another.
-            if (tgt.value.length && ev.which !== 8) {
-                ev.preventDefault();
-            }
+            // Show the code in capitals, without anything that isn't part of it.
+            if (input.value !== code) input.value = code;
+            this.$emit("input", code);
         }
     }
 </script>
 
 <style lang="stylus">
     .code-entry input
-        margin-right 10px
-        width 120px
+        width 100%
         box-sizing border-box
         height 180px
         padding 20px
@@ -83,9 +41,16 @@
         outline none
         border-radius 0
         color #f0e6d2
-        font-size 110px
+        font-size 90px
+        letter-spacing 0.1em
         text-align center
+        text-transform uppercase
         font-family "LoL Body", sans-serif
         border 3px solid #785a28
         background-color black
+
+        &::placeholder
+            color #5b5a56
+            letter-spacing normal
+            text-transform none
 </style>
