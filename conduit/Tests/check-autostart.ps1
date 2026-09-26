@@ -21,8 +21,9 @@ Remove-ItemProperty -Path $run -Name $name -ErrorAction SilentlyContinue
 New-Item -Path $approved -Force | Out-Null
 New-ItemProperty -Path $approved -Name $name -PropertyType Binary -Value ([byte[]](3,0,0,0,0,0,0,0,0,0,0,0)) -Force | Out-Null
 
-# Conduit's own code, as the Settings checkbox calls it.
-$assembly = [Reflection.Assembly]::LoadFrom($copy)
+# Conduit's own code, as the Settings checkbox calls it. LoadFrom refuses a file marked as
+# downloaded; UnsafeLoadFrom is the one meant for that. Running the exe isn't affected.
+$assembly = [Reflection.Assembly]::UnsafeLoadFrom($copy)
 $persistence = $assembly.GetType("Conduit.Persistence")
 $launches = { $persistence.GetMethod("LaunchesAtStartup").Invoke($null, @()) }
 $toggle = { $persistence.GetMethod("ToggleLaunchAtStartup").Invoke($null, @()) | Out-Null }
