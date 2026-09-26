@@ -13,6 +13,14 @@ Mimic is a different UI for the new League client that renders on your phone as 
 
 This repository contains the source code for Mimic. [Looking for the page with features and downloads instead?](https://mimic.lol)
 
+## Autopick
+
+In the lobby, **Setup Autopick** sets up champions per role: up to four to pick (a first choice and three backups, each with an optional skin, summoner spells and runes) and two to ban. The **Autopick** switch above it turns it on for your next game. It switches itself off when the game starts.
+
+**All roles** is not a role: it fills in the picks or bans of any role that has none of its own, and is used in queues without roles. League Classic champions only show in the setup with the toggle above the champion list; in League Classic, autopick uses the Classic version of your champions by itself.
+
+Autopick runs in Conduit on your PC, so it works while your phone is locked. It skips champions that are banned, taken, or wanted by a teammate, and leaves the pick or ban to you as soon as you choose something yourself. Runes go into the client's temporary rune page. If the client has no room for one, autopick uses a page named `FOR_MIMIC`. `MIMIC_AUTOPICK_LOCK_IN_DELAY` in `.env` makes it wait that many seconds into your turn before locking in.
+
 ## Developing Mimic
 
 Mimic is composed of three different components: **web**, **conduit** and **rift**. Please read the appropriate READMEs in the subdirectories for information on how to develop for the platform.

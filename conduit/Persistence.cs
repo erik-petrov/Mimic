@@ -21,6 +21,7 @@ namespace Conduit
         private static readonly string KEYPAIR_PATH = Path.Combine(DATA_DIRECTORY, "keys");
         private static readonly string DEVICES_PATH = Path.Combine(DATA_DIRECTORY, "devices");
         private static readonly string SERVER_PATH = Path.Combine(DATA_DIRECTORY, "server");
+        private static readonly string AUTOPICK_PATH = Path.Combine(DATA_DIRECTORY, "autopick.json");
 
         public const string DEFAULT_SERVER = "https://rift.mimic.lol";
         private static readonly RegistryKey BOOT_KEY = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
@@ -52,6 +53,29 @@ namespace Conduit
             }
 
             return DEFAULT_SERVER;
+        }
+
+        /**
+         * Returns the stored autopick setup (JSON), or null if there is none.
+         */
+        public static string GetAutopickSetup()
+        {
+            try
+            {
+                return File.Exists(AUTOPICK_PATH) ? File.ReadAllText(AUTOPICK_PATH) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /**
+         * Stores the autopick setup (JSON).
+         */
+        public static void SetAutopickSetup(string setup)
+        {
+            File.WriteAllText(AUTOPICK_PATH, setup);
         }
 
         /**

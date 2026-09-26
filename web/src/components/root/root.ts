@@ -1,6 +1,7 @@
 import { loadDdragon } from "@/constants";
 import Vue from "vue";
 import Component from "vue-class-component";
+import { Watch } from "vue-property-decorator";
 
 import SocketState from "./socket-state.vue";
 import Lobby from "../lobby/lobby.vue";
@@ -11,6 +12,7 @@ import Invites from "../invites/invites.vue";
 import Version from "../../util/version";
 import RiftSocket, { MobileOpcode } from "./rift-socket";
 import { onUpdateReady } from "../../registerServiceWorker";
+import { AUTOPICK_PATH, AutopickState, parseAutopickState } from "../autopick/autopick-state";
 
 // Represents a result from the LCU api.
 export interface Result {
@@ -41,6 +43,9 @@ export default class Root extends Vue {
     peerVersion: Version = <any>null; // null is required to allow vue to observe
     notifications: string[] = [];
     ddragonVersion: string = "";
+
+    // Autopick, from Conduit. null until known, false if this Conduit is too old for it.
+    autopick: AutopickState | null | false = null;
 
     connecting = false;
 
@@ -127,8 +132,11 @@ export default class Root extends Vue {
     unobserve(path: RegExp | string) {
         if (typeof path === "string") path = new RegExp("^" + path + "$");
 
-        this.observers = this.observers.filter(x => {
-            if (x.matcher.toString() !== path.toString()) return true;
+        // Remove the entries in place. handleWebsocketMessage holds on to the original array, so
+        // after replacing it, paths observed later would never get updates.
+        for (let i = this.observers.length - 1; i >= 0; i--) {
+            if (this.observers[i].matcher.toString() !== path.toString()) continue;
+            this.observers.splice(i, 1);
 
             // Ensure that the websocket is open, which might not be the case if the unmount
             // happened due to a disconnection.
@@ -136,9 +144,7 @@ export default class Root extends Vue {
                 // ask to stop observing
                 this.socket!.send(JSON.stringify([MobileOpcode.UNSUBSCRIBE, (path as RegExp).source]));
             }
-
-            return false;
-        });
+        }
     }
 
     /**
@@ -180,6 +186,19 @@ export default class Root extends Vue {
     };
 
     /**
+     * Keeps the autopick state up to date once connected. Older Conduits pass the request on
+     * to League, which doesn't know the path, so autopick shows as unavailable. This is a
+     * watcher because handleWebsocketMessage doesn't run on the component itself, so calling
+     * it from there would register the observer in the wrong place.
+     */
+    @Watch("peerVersion")
+    observeAutopick() {
+        if (!this.peerVersion) return;
+        this.unobserve(AUTOPICK_PATH);
+        this.observe(AUTOPICK_PATH, result => this.autopick = parseAutopickState(result));
+    }
+
+    /**
      * Weirdly enough, setting this directly in handleWebsocketManage makes vue go
      * haywire. This works fine though, so we use this instead.
      */
@@ -212,6 +231,7 @@ export default class Root extends Vue {
                 }
 
                 this.connected = false;
+                this.autopick = null;
                 this.socket = null;
                 this.showNotification("Connection to host closed.");
             };

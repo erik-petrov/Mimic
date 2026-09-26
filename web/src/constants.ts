@@ -16,6 +16,26 @@ export async function loadDdragon(): Promise<string> {
     });
 }
 
+const staticData: { [filename: string]: Promise<any> } = {};
+
+/**
+ * Loads the specified json file (like runesReforged.json) from the latest ddragon static data.
+ * Each file is only downloaded once.
+ */
+export function loadStaticData(filename: string): Promise<any> {
+    if (staticData[filename]) return staticData[filename];
+
+    return staticData[filename] = loadDdragon().then(version => new Promise(resolve => {
+        const req = new XMLHttpRequest();
+        req.onreadystatechange = () => {
+            if (req.status !== 200 || !req.responseText || req.readyState !== 4) return;
+            resolve(JSON.parse(req.responseText));
+        };
+        req.open("GET", `https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/${filename}`, true);
+        req.send();
+    }));
+}
+
 const CDRAGON_GAME_DATA = "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/";
 
 /**
@@ -63,28 +83,6 @@ export const POSITION_NAMES: { [key: string]: string } = {
     LANE: "Lane" // nexus blitz
 };
 
-export const GAMEMODE_NAMES: { [key: string]: string } = {
-    "8-ascension": "Ascension",
-    "8-odin": "Definitely Not Dominion",
-    "10-classic": "Twisted Treeline",
-    "11-arsr": "ARSR",
-    "11-assassinate": "Blood Moon",
-    "11-classic": "Summoner’s Rift",
-    "11-urf": "AR URF",
-    "11-siege": "Nexus Siege",
-    "11-lcurgmdisabled": "Rotating Game Mode",
-    "12-aram": "ARAM",
-    "12-portalparty": "Portal Party",
-    "12-kingporo": "Legend of the Poro King",
-    "12-basic_tutorial": "TUTORIAL",
-    "11-battle_training": "BATTLE TRAINING",
-    "11-tutorial_flow": "TUTORIAL",
-    "16-darkstar": "Dark Star: Singularity",
-    "18-starguardian": "Invasion",
-    "11-doombotsteemo": "Doom Bots of Doom",
-    "11-practicetool": "Practice Tool",
-    "22-tft": "Teamfight Tactics"
-};
 
 import RoleUnselected from "./static/roles/role-unselected.png";
 import RoleTop from "./static/roles/role-top.png";

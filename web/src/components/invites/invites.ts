@@ -36,10 +36,10 @@ export default class Invites extends Vue {
                 invite.fromSummoner = (await this.$root.request("/lol-summoner/v1/summoners/" + invite.fromSummonerId)).content;
 
                 const queueInfo = await this.$root.request("/lol-game-queues/v1/queues/" + invite.gameConfig.queueId);
-                invite.queueName = queueInfo.content.description;
+                invite.queueName = queueInfo.content ? queueInfo.content.description : "";
 
                 const mapInfo = await this.$root.request("/lol-maps/v1/map/" + invite.gameConfig.mapId);
-                invite.mapName = mapInfo.content.name;
+                invite.mapName = mapInfo.content ? mapInfo.content.name : "";
             }
 
 

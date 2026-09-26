@@ -18,6 +18,7 @@ namespace Conduit
 
         private App app;
         private LeagueConnection league;
+        private Autopick autopick;
         private HubConnectionHandler hubConnectionHandler;
         private bool isNewLaunch = true;
         private bool hasTriedImmediateReconnect = false; // after a DC, we first try to reconnect immediately. If that fails, do a 5s backoff
@@ -29,18 +30,66 @@ namespace Conduit
             this.app = app;
             this.league = new LeagueConnection();
 
+            // Autopick runs whenever League is open, whether or not a phone is connected.
+            autopick = new Autopick(new LeagueApi(league), Persistence.GetAutopickSetup(), Persistence.SetAutopickSetup, FetchLockInDelay, msg => DebugLogger.Global.WriteMessage(msg));
+            league.OnWebsocketEventForAutopick += ev => autopick.HandleEvent(ev.Path, ev.Type, (object) ev.Data);
+
             // Hook up league events.
             league.OnConnected += () =>
             {
                 DebugLogger.Global.WriteMessage($"ConnectionManager is connected to League of Legends.");
                 isNewLaunch = true;
+                RefreshAutopick();
                 Connect();
             };
             league.OnDisconnected += () =>
             {
                 DebugLogger.Global.WriteMessage($"ConnectionManager is disconnected from League of Legends.");
+                autopick.Reset();
                 Close();
             };
+        }
+
+        /**
+         * Lets autopick catch up when we connect to League in the middle of a champ select.
+         */
+        private async void RefreshAutopick()
+        {
+            try
+            {
+                await autopick.Refresh();
+            }
+            catch (Exception e)
+            {
+                DebugLogger.Global.WriteError($"Autopick could not read the champ select: {e}");
+            }
+        }
+
+        /**
+         * Gets how many seconds autopick waits before locking in, from the Rift server's /settings.
+         * Servers without it (like the shared one) lock in right away. Returns null if the server
+         * can't be reached, to keep the value we had.
+         */
+        private static async Task<int?> FetchLockInDelay()
+        {
+            try
+            {
+                using (var cancel = new CancellationTokenSource(5000))
+                {
+                    var response = await httpClient.GetAsync(Program.HUB + "/settings", cancel.Token);
+                    if (!response.IsSuccessStatusCode) return 0;
+
+                    var settings = SimpleJson.DeserializeObject(await response.Content.ReadAsStringAsync()) as JsonObject;
+                    object delay;
+                    if (settings != null && settings.TryGetValue("autopickLockInDelay", out delay) && delay is long) return (int) (long) delay;
+                    return 0;
+                }
+            }
+            catch (Exception e)
+            {
+                DebugLogger.Global.WriteWarning($"Could not get the autopick lock in delay from Rift: {e.Message}");
+                return null;
+            }
         }
 
         /**
@@ -89,7 +138,7 @@ namespace Conduit
                 }
 
                 // Connect to hub. Will error if token is invalid or server is down, which will prompt a reconnection.
-                hubConnectionHandler = new HubConnectionHandler(league);
+                hubConnectionHandler = new HubConnectionHandler(league, autopick);
                 hubConnectionHandler.OnClose += CloseAndReconnect;
 
                 // We assume to be connected.

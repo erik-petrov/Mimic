@@ -2,34 +2,12 @@ import Vue from "vue";
 import { Component, Prop } from "vue-property-decorator";
 import { default as ChampSelect, RunePage } from "./champ-select";
 import Root from "../root/root";
-import { gameDataAsset } from "@/constants";
+import RuneTreeEditor from "../common/rune-tree-editor.vue";
+import { RuneTree } from "../common/rune-tree-editor";
 
-interface RuneSlot {
-    runes: {
-        id: number;
-    }[];
-}
-
-interface RuneTree {
-    id: number;
-    slots: RuneSlot[];
-}
-
-// The three rows of stat shards (offense, flex, defense), as the client lists them.
-// They are not in runesReforged.json, so they are listed here.
-export const STAT_ROWS = [[5008, 5005, 5007], [5008, 5010, 5001], [5011, 5013, 5001]];
-
-const STAT_DESCRIPTIONS: { [key: number]: string } = {
-    5008: "AP/AD",
-    5005: "ATKSPD",
-    5007: "HASTE",
-    5010: "MS",
-    5001: "HP/LVL",
-    5011: "HP",
-    5013: "TENACITY"
-};
-
-@Component({})
+@Component({
+    components: { runeTreeEditor: RuneTreeEditor }
+})
 export default class RuneEditor extends Vue {
     $root: Root;
     $parent: ChampSelect;
@@ -38,22 +16,8 @@ export default class RuneEditor extends Vue {
     show: boolean;
 
     runes: RuneTree[] = [];
-    secondaryIndex = 0;
-
-    // Icon paths of every perk, from the client. Used for the stat shards.
-    perkIcons: { [id: number]: string } = {};
-
-    readonly statRows = STAT_ROWS;
 
     async created() {
-        this.$root.request("/lol-perks/v1/perks").then(result => {
-            if (result.status !== 200 || !Array.isArray(result.content)) return;
-
-            const icons: { [id: number]: string } = {};
-            result.content.forEach((x: { id: number, iconPath: string }) => icons[x.id] = x.iconPath);
-            this.perkIcons = icons;
-        });
-
         this.runes = await this.$parent.loadStatic("runesReforged.json");
     }
 
@@ -63,88 +27,6 @@ export default class RuneEditor extends Vue {
     get currentPage() {
         const page = this.$parent.currentRunePage;
         return page && page.isEditable ? page : undefined;
-    }
-
-    /**
-     * @returns the rune tree for the specified id
-     */
-    getRuneTree(id: number) {
-        return this.runes.filter(x => x.id === id)[0];
-    }
-
-    /**
-     * Sets the primary tree of the current rune page to the specified tree id.
-     * This will clear any of the current selections the user has made so far.
-     * This will select the first tree that is not the selected tree as the
-     * secondary tree, which will be precision most of the time.
-     */
-    selectPrimaryTree(id: number) {
-        if (!this.currentPage) return;
-        this.currentPage.primaryStyleId = id;
-        this.currentPage.subStyleId = this.runes.filter(x => x.id !== id)[0].id;
-
-        // Reset all runes except the stat shards.
-        this.currentPage.selectedPerkIds = [0, 0, 0, 0, 0, 0, this.currentPage.selectedPerkIds[6], this.currentPage.selectedPerkIds[7], this.currentPage.selectedPerkIds[8]];
-
-        this.secondaryIndex = 0;
-        this.savePage();
-    }
-
-    /**
-     * Selects the specified primary rune in the specified slot.
-     */
-    selectPrimaryRune(slotIndex: number, id: number) {
-        if (!this.currentPage) return;
-
-        this.currentPage.selectedPerkIds[slotIndex] = id;
-        (<any>this).$forceUpdate();
-        this.savePage();
-    }
-
-    /**
-     * Selects the specified secondary tree. This will clear all of the
-     * currently selected secondary runes and check that the same tree is
-     * not selected twice.
-     */
-    selectSecondaryTree(id: number) {
-        if (!this.currentPage) return;
-        if (this.currentPage.primaryStyleId === id) return;
-
-        this.currentPage.subStyleId = id;
-        this.currentPage.selectedPerkIds[4] = 0;
-        this.currentPage.selectedPerkIds[5] = 0;
-
-        this.savePage();
-    }
-
-    /**
-     * Selects the specified secondary rune. This alternates so that the least
-     * recently chosen secondary rune is replaced by the current choice.
-     */
-    selectSecondaryRune(id: number) {
-        if (!this.currentPage) return;
-
-        // Make sure that we are not selecting two runes from the same slot.
-        const otherRune = this.currentPage.selectedPerkIds[4 + this.secondaryIndex];
-        const slot = this.getRuneTree(this.currentPage.subStyleId).slots.filter(x => x.runes.filter(x => x.id === id).length !== 0)[0];
-        if (slot.runes.filter(x => x.id === otherRune).length) return;
-
-        this.secondaryIndex = (this.secondaryIndex + 1) % 2;
-        this.currentPage.selectedPerkIds[4 + this.secondaryIndex] = id;
-        (<any>this).$forceUpdate();
-
-        this.savePage();
-    }
-
-    /**
-     * Selects the specified stat rune in the specified slot.
-     */
-    selectStatRune(slotIndex: number, id: number) {
-        if (!this.currentPage) return;
-
-        this.currentPage.selectedPerkIds[6 + slotIndex] = id;
-        (<any>this).$forceUpdate();
-        this.savePage();
     }
 
     /**
@@ -189,27 +71,5 @@ export default class RuneEditor extends Vue {
 
         this.$root.request("/lol-perks/v1/pages/" + this.currentPage.id, "DELETE");
         this.$parent.runePages = this.$parent.runePages.filter(x => x.id != this.currentPage!.id);
-    }
-
-    /**
-     * @returns the style url to the ddragon image of the specified rune or rune style
-     */
-    getRuneIconStyle(runeOrStyle: { icon: string }) {
-        return `background-image: url(https://ddragon.leagueoflegends.com/cdn/img/${runeOrStyle.icon})`;
-    }
-
-    /**
-     * @returns the style that shows the icon of the specified stat shard
-     */
-    getStatIconStyle(id: number) {
-        const path = this.perkIcons[id];
-        return path ? `background-image: url(${gameDataAsset(path)})` : "";
-    }
-
-    /**
-     * @return short description of what a stat is
-     */
-    getStatDescription(id: number) {
-        return STAT_DESCRIPTIONS[id];
     }
 }

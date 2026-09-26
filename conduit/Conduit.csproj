@@ -100,6 +100,7 @@
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
     <Compile Include="Administrator.cs" />
+    <Compile Include="Autopick.cs" />
     <Compile Include="ConnectionManager.cs" />
     <Compile Include="CryptoHelpers.cs" />
     <Compile Include="DebugLogger.cs" />

@@ -7,7 +7,12 @@ import LobbyMemberComponent from "./lobby-member.vue";
 import RolePicker from "./role-picker.vue";
 import InviteOverlay from "./invite-overlay.vue";
 import CreateLobby from "./create-lobby.vue";
+import AutopickSetup from "../autopick/autopick-setup.vue";
+import { hasAutopickSetup, setAutopickEnabled } from "../autopick/autopick-state";
 import { QueueState } from "../queue/queue";
+
+// Where the League client keeps the roles you chose last.
+const ROLE_SETTINGS = "/lol-settings/v2/account/LCUPreferences/partiesPositionPreferences";
 
 /**
  * Represents a member of the lobby. The summoner
@@ -40,6 +45,7 @@ export interface InvitationMetadata {
  * list of properties that only contain the ones we are using.
  */
 export interface LobbyState {
+    partyId?: string;
     gameConfig: {
         queueId: number;
         mapId: number;
@@ -57,7 +63,8 @@ export interface LobbyState {
         lobbyMember: LobbyMemberComponent,
         rolePicker: RolePicker,
         lobbyInvites: InviteOverlay,
-        createLobby: CreateLobby
+        createLobby: CreateLobby,
+        autopickSetup: AutopickSetup
     }
 })
 export default class Lobby extends Vue {
@@ -67,12 +74,19 @@ export default class Lobby extends Vue {
     matchmakingState: QueueState | null = null;
 
     queueName = "";
+
+    // Whether the queue asks for positions. Custom Draft does, even when its lobby doesn't say so.
+    queueShowsPositions = false;
     mapName = "";
 
     showingRolePicker = false;
     pickingFirstRole = false;
 
+    // The lobby (party and queue) the saved roles were applied to, so it happens once per lobby.
+    savedRolesAppliedTo = "";
+
     showingInvites = false;
+    showingAutopick = false;
     creatingLobby = false;
 
     mounted() {
@@ -120,14 +134,52 @@ export default class Lobby extends Vue {
 
         // Load queue/map info.
         const queueInfo = await this.$root.request("/lol-game-queues/v1/queues/" + state.gameConfig.queueId);
-        this.queueName = queueInfo.content.description;
+        this.queueName = queueInfo.content ? queueInfo.content.description : "";
+        this.queueShowsPositions = !!(queueInfo.content && queueInfo.content.showPositionSelector);
 
         const mapInfo = await this.$root.request("/lol-maps/v1/map/" + state.gameConfig.mapId);
         this.mapName = mapInfo.content.name;
 
         // Propagate changes.
         this.state = state;
+
+        this.applySavedRoles(state);
     };
+
+    /**
+     * A new lobby starts with default roles; the League client fills in the roles you used last
+     * only once you look at it or start searching. Do the same right away, once per lobby, and
+     * only while the roles are still the default ones.
+     */
+    async applySavedRoles(state: LobbyState) {
+        if (!this.showPositions) return;
+
+        const key = (state.partyId || "") + ":" + state.gameConfig.queueId;
+        if (this.savedRolesAppliedTo === key) return;
+        this.savedRolesAppliedTo = key;
+
+        const first = state.localMember.firstPositionPreference;
+        const second = state.localMember.secondPositionPreference;
+        const isDefault = first === "UNSELECTED" || (first === "FILL" && second === "UNSELECTED");
+        if (!isDefault) return;
+
+        const saved = await this.$root.request(ROLE_SETTINGS);
+        const roles = saved.status === 200 && saved.content && saved.content.data;
+        if (!roles || !roles.firstPreference || roles.firstPreference === "UNSELECTED") return;
+        if (roles.firstPreference === first && roles.secondPreference === second) return;
+
+        this.$root.request("/lol-lobby/v2/lobby/members/localMember/position-preferences", "PUT", JSON.stringify({
+            firstPreference: roles.firstPreference,
+            secondPreference: roles.secondPreference || "UNSELECTED"
+        }));
+    }
+
+    /**
+     * @returns whether to show the role pickers: when the lobby or its queue asks for positions
+     */
+    get showPositions(): boolean {
+        return !!this.state && (this.state.gameConfig.showPositionSelector || this.queueShowsPositions);
+    }
 
     /**
      * @returns subtitle shown in the lobby view, detailing queue and map
@@ -238,9 +290,21 @@ export default class Lobby extends Vue {
     /**
      * Invoked from the role picker, updates the user with the new roles.
      */
-    updateRoles(newRoles: any) {
+    updateRoles(newRoles: { firstPreference: string, secondPreference: string }) {
         this.$root.request("/lol-lobby/v2/lobby/members/localMember/position-preferences", "PUT", JSON.stringify(newRoles));
         this.showingRolePicker = false;
+
+        // Remember them where the League client does, so the next lobby starts with them.
+        this.$root.request(ROLE_SETTINGS, "PATCH", JSON.stringify({
+            schemaVersion: 0,
+            data: {
+                firstPreference: newRoles.firstPreference,
+                secondPreference: newRoles.secondPreference,
+                thirdPreference: "UNSELECTED",
+                fourthPreference: "UNSELECTED",
+                fifthPreference: "UNSELECTED"
+            }
+        }));
     }
 
     /**
@@ -255,5 +319,32 @@ export default class Lobby extends Vue {
      */
     formatSeconds(secs: number) {
         return (Math.floor(secs / 60)) + ":" + ("00" + (Math.round(secs) % 60).toFixed(0)).slice(-2);
+    }
+
+    /**
+     * @returns the line under the autopick switch
+     */
+    get autopickDetail(): string {
+        const autopick = this.$root.autopick;
+        if (!autopick) return "";
+        if (!hasAutopickSetup(autopick.roles)) return "Nothing set up yet";
+        if (!autopick.enabled) return "Off";
+        return autopick.lockInDelay ? "On for your next game, locks in after " + autopick.lockInDelay + "s" : "On for your next game";
+    }
+
+    /**
+     * Switches autopick on or off. Opens the setup instead if nothing is set up yet.
+     */
+    async toggleAutopick() {
+        const autopick = this.$root.autopick;
+        if (!autopick) return;
+
+        if (!autopick.enabled && !hasAutopickSetup(autopick.roles)) {
+            this.showingAutopick = true;
+            return;
+        }
+
+        const result = await setAutopickEnabled(this.$root, !autopick.enabled);
+        if (result.status !== 200) this.$root.showNotification("Could not switch autopick (error " + result.status + ").");
     }
 }

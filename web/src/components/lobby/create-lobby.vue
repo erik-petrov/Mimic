@@ -6,15 +6,12 @@
         </div>
 
         <div class="sections">
-            <div class="section" v-for="section in sections">
-                <img
-                        @click="selectSection(section)"
-                        :src="sectionIcon(section, 'default')">
-
-                <img
-                        :class="selectedSection !== section && 'hide'"
-                        @click="selectSection(section)"
-                        :src="sectionIcon(section, 'active')">
+            <div class="section" v-for="section in sections" :key="section.key" @click="selectSection(section.key)">
+                <div class="icon">
+                    <img :src="sectionIcon(section, 'default')">
+                    <img :class="selectedSection !== section.key && 'hide'" :src="sectionIcon(section, 'active')">
+                </div>
+                <span class="label" :class="selectedSection === section.key && 'selected'">{{ section.title }}</span>
             </div>
         </div>
 
@@ -22,22 +19,24 @@
             {{ sectionTitle }}
         </div>
 
-        <div class="queues" v-if="selectedSection">
+        <div class="queues" v-if="currentSection">
             <a
                 class="queue"
-                v-for="queue in availableQueues[selectedSection]"
-                :class="selectedQueueId === queue.id && 'selected'"
-                @click="selectedQueueId = queue.id">
+                v-for="queue in currentSection.queues"
+                :key="queue.id"
+                :class="{ selected: selectedQueueId === queue.id, closed: !isOpen(queue) }"
+                @click="selectQueue(queue)">
                 <div class="diamond-outer">
                     <div class="diamond-inner"></div>
                 </div>
 
-                <span>{{ queue.description }}</span>
+                <span>{{ queueLabel(queue) }}</span>
+                <span class="closed-label" v-if="!isOpen(queue)">Closed right now</span>
             </a>
         </div>
 
         <div class="create">
-            <lcu-button @click="createLobby">
+            <lcu-button @click="createLobby" :disabled="!selectedQueueId">
                 Confirm
             </lcu-button>
         </div>
@@ -96,21 +95,38 @@
         display flex
         justify-content space-around
         margin-top 30px
+        padding 0 10px
 
         .section
-            position relative
-            padding 10px
-            width 20vw
-            height 20vw
+            flex 1
+            display flex
+            flex-direction column
+            align-items center
+            min-width 0
 
-        .section img
+        .icon
+            position relative
+            width 13vw
+            height 13vw
+
+        .icon img
             position absolute
             transition opacity 0.2s ease
             width 100%
             height 100%
 
-        .section img.hide
+        .icon img.hide
             opacity 0
+
+        .label
+            margin-top 8px
+            font-size 24px
+            line-height 1.2
+            text-align center
+            color #a09b8c
+
+            &.selected
+                color #f0e6d2
 
     .section-title
         box-sizing border-box
@@ -125,11 +141,15 @@
         text-transform uppercase
 
     .queues
+        box-sizing border-box
         display flex
         flex-direction column
         width 100%
         padding 30px
         flex 1
+        min-height 0
+        overflow-y auto
+        -webkit-overflow-scrolling touch
 
         .queue
             display flex
@@ -171,6 +191,28 @@
 
         .queue.selected span
             color #efe5d1
+
+        .queue
+            flex-shrink 0
+            min-height 75px
+            height auto
+
+        .queue span
+            font-size 44px
+
+        .queue.closed span
+            color #5b5a56
+
+        .queue.closed .diamond-outer
+            background-color #3c3c41
+
+        .queue .closed-label
+            margin-left auto
+            padding-left 20px
+            font-family "LoL Body"
+            font-size 28px
+            text-transform none
+            white-space nowrap
 
     .create
         align-self center

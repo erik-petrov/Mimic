@@ -7,6 +7,11 @@
         <swap-prompt :state="state"></swap-prompt>
 
         <timer :state="state"></timer>
+        <div class="autopick-status" v-if="autopickStatus">
+            <i class="ion-flash"></i>
+            <span class="text">{{ autopickStatus }}</span>
+            <a class="stop" v-if="$root.autopick.enabled" @click="stopAutopick()">Stop</a>
+        </div>
         <members :state="state"></members>
         <player-settings
             :state="state"
@@ -46,4 +51,34 @@
         background-repeat no-repeat
         display flex
         flex-direction column
+
+    .autopick-status
+        display flex
+        align-items center
+        padding 12px 20px
+        background-color rgba(1, 10, 19, 0.85)
+        border-bottom 2px solid #785a28
+        color #f0e6d2
+        font-family "LoL Body"
+        font-size 34px
+
+        i
+            color #c89c3c
+            font-size 44px
+            margin-right 15px
+
+        .text
+            flex 1
+
+        .stop
+            margin-left 20px
+            padding 8px 24px
+            border 2px solid #c8aa6e
+            color #c8aa6e
+            text-transform uppercase
+            font-family "LoL Display"
+            font-weight 700
+
+            &:active
+                opacity 0.6
 </style>

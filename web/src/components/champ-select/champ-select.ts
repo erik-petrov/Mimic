@@ -1,7 +1,7 @@
 import Vue from "vue";
 import Root, { Result } from "../root/root";
 import { Component } from "vue-property-decorator";
-import { loadDdragon, mapBackground } from "@/constants";
+import { loadStaticData, mapBackground } from "@/constants";
 
 import Timer from "./timer.vue";
 import Members from "./members.vue";
@@ -13,6 +13,7 @@ import Bench from "./bench.vue";
 import SkinPicker from "./skin-picker.vue";
 import SwapPrompt from "./swap-prompt.vue";
 import RuneRecommendations from "./rune-recommendations.vue";
+import { setAutopickEnabled } from "../autopick/autopick-state";
 
 import MagicBackground from "../../static/magic-background.jpg";
 
@@ -378,6 +379,23 @@ export default class ChampSelect extends Vue {
     /**
      * @returns the champion the local player has picked or is hovering, or 0 if none
      */
+    /**
+     * @returns what autopick is doing in this champ select, or "" to show nothing
+     */
+    get autopickStatus(): string {
+        const autopick = this.$root.autopick;
+        if (!autopick) return "";
+        return autopick.status || (autopick.enabled ? "Autopick is on." : "");
+    }
+
+    /**
+     * Switches autopick off, leaving the rest of this champ select to the player.
+     */
+    async stopAutopick() {
+        const result = await setAutopickEnabled(this.$root, false);
+        if (result.status !== 200) this.$root.showNotification("Could not stop autopick (error " + result.status + ").");
+    }
+
     get localChampionId(): number {
         if (!this.state) return 0;
 
@@ -435,17 +453,7 @@ export default class ChampSelect extends Vue {
     /**
      * Helper method to load the specified json name from the ddragon static data.
      */
-    public async loadStatic(filename: string): Promise<any> {
-        const ddragonVersion = await loadDdragon();
-        return new Promise(resolve => {
-            const req = new XMLHttpRequest();
-            req.onreadystatechange = () => {
-                if (req.status !== 200 || !req.responseText || req.readyState !== 4) return;
-                const map = JSON.parse(req.responseText);
-                resolve(map);
-            };
-            req.open("GET", `https://ddragon.leagueoflegends.com/cdn/${ddragonVersion}/data/en_US/${filename}`, true);
-            req.send();
-        });
+    public loadStatic(filename: string): Promise<any> {
+        return loadStaticData(filename);
     }
 }

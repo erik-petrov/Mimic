@@ -57,4 +57,13 @@ app.get("/check", async (req, res) => {
     });
 });
 
+// GET /settings. Settings of this server that Conduit uses. autopickLockInDelay is how many
+// seconds autopick waits into a turn before it locks in, from AUTOPICK_LOCK_IN_DELAY.
+app.get("/settings", (req, res) => {
+    const delay = Number(process.env.AUTOPICK_LOCK_IN_DELAY);
+    res.json({
+        autopickLockInDelay: Number.isFinite(delay) && delay > 0 ? Math.floor(delay) : 0
+    });
+});
+
 export default app;

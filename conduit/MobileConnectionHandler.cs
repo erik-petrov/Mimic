@@ -18,16 +18,19 @@ namespace Conduit
         public delegate void SendMessageDelegate(string s);
 
         private LeagueConnection league;
+        private Autopick autopick;
         private byte[] key;
         private Dictionary<string, Regex> observedPaths = new Dictionary<string, Regex>();
 
         private SendMessageDelegate Send;
         private SendMessageDelegate SendRaw;
 
-        public MobileConnectionHandler(LeagueConnection league, SendMessageDelegate send)
+        public MobileConnectionHandler(LeagueConnection league, Autopick autopick, SendMessageDelegate send)
         {
             this.league = league;
             this.league.OnWebsocketEvent += HandleLeagueEvent;
+            this.autopick = autopick;
+            this.autopick.OnChanged += HandleAutopickChange;
 
             this.SendRaw = send;
             this.Send = msg => SendRaw("\"" + CryptoHelpers.EncryptAES(key, msg) + "\"");
@@ -39,6 +42,7 @@ namespace Conduit
         public void OnClose()
         {
             this.league.OnWebsocketEvent -= HandleLeagueEvent;
+            this.autopick.OnChanged -= HandleAutopickChange;
         }
 
         /**
@@ -134,6 +138,14 @@ namespace Conduit
                 var method = (string) msg[3];
                 var body = (string) msg[4];
 
+                // Autopick lives in Conduit, so its requests don't go to League.
+                if (path.StartsWith("/mimic/"))
+                {
+                    var answer = autopick.HandleRequest(method, path, body);
+                    Send("[" + (long) MobileOpcode.Response + "," + id + "," + answer.Status + "," + SimpleJson.SerializeObject(answer.Content) + "]");
+                    return;
+                }
+
                 var result = await league.Request(method, path, body);
                 var contents = await result.Content.ReadAsStringAsync();
                 if (contents.IsNullOrEmpty()) contents = "null";
@@ -144,6 +156,15 @@ namespace Conduit
             {
                 Send("[" + (long) MobileOpcode.VersionResponse + ", \"" + Program.VERSION + "\", \"" + Environment.MachineName + "\"]");
             }
+        }
+
+        /**
+         * Sends the new autopick state, if the phone observes it.
+         */
+        private void HandleAutopickChange()
+        {
+            if (key == null || !observedPaths.Values.Any(x => x.IsMatch(Autopick.PATH))) return;
+            Send("[" + (long) MobileOpcode.Update + ",\"" + Autopick.PATH + "\",200," + autopick.GetState() + "]");
         }
 
         /**

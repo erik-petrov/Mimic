@@ -19,6 +19,7 @@ During development, you can use `yarn watch` to automatically compile TypeScript
 - `PORT`: port to listen on, 51001 by default.
 - `RIFT_DATABASE`: path of the SQLite database, `database.db` by default. The Docker image uses `/data/database.db`.
 - `RIFT_JWT_SECRET`: secret that signs the tokens given to Conduit. If unset, Rift creates one next to the database and reuses it, so codes stay valid across restarts.
+- `AUTOPICK_LOCK_IN_DELAY`: seconds autopick waits into your turn before it locks in or bans, `0` by default. Conduit reads it from `GET /settings`. It always locks in a few seconds before the turn ends.
 
 See `compose.yaml` in the repository root to run Rift together with the web app.
 

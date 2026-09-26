@@ -16,14 +16,16 @@ namespace Conduit
     {
         private WebSocket socket;
         private LeagueConnection league;
+        private Autopick autopick;
         private Dictionary<string, MobileConnectionHandler> connections = new Dictionary<string, MobileConnectionHandler>();
 
         public event Action OnClose;
         private bool hasClosed = false;
 
-        public HubConnectionHandler(LeagueConnection league)
+        public HubConnectionHandler(LeagueConnection league, Autopick autopick)
         {
             this.league = league;
+            this.autopick = autopick;
 
             // Pass parameters in the URL.
             socket = new WebSocket(
@@ -90,7 +92,7 @@ namespace Conduit
             {
                 if (connections.ContainsKey(contents[1])) return;
 
-                connections.Add(contents[1], new MobileConnectionHandler(league, msg =>
+                connections.Add(contents[1], new MobileConnectionHandler(league, autopick, msg =>
                 {
                     socket.Send("[" + (long) RiftOpcode.Reply + ",\"" + contents[1] + "\"," + msg + "]");
                 }));

@@ -67,12 +67,15 @@
             border-radius 50%
             border 4px solid #ae8939
 
+        // The text takes the room left and wraps, so a long lobby name can't push the buttons away.
         .info
             flex 1
+            min-width 0
             margin-left 20px
             display flex
             flex-direction column
             justify-content center
+            overflow-wrap anywhere
 
         .name
             font-size 50px
@@ -81,16 +84,17 @@
         .details
             font-size 40px
             color #0acbe6
-            white-space nowrap
 
         .actions
-            flex 140px 0
-            margin-right 30px
+            flex 0 0 auto
+            display flex
+            align-items center
+            margin 0 30px 0 20px
             font-size 70px
             color #f0e6d2
 
-        .actions > i:first-child
-            margin-right 20px
+            i
+                padding 0 10px
 
     .expand-enter-active, .expand-leave-active
         transition max-height 0.3s ease
