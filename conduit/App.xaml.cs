@@ -1,4 +1,6 @@
-﻿using System.Windows.Forms;
+﻿using System;
+using System.Linq;
+using System.Windows.Forms;
 
 namespace Conduit
 {
@@ -54,11 +56,25 @@ namespace Conduit
             Persistence.OnHubCodeChanged += UpdateCodeMenuItemText;
             UpdateCodeMenuItemText();
 
-            // Unless we automatically launched at startup, display a bubble with info.
-            if (!Persistence.LaunchesAtStartup())
+            // Keeps the startup command up to date, in case Conduit moved.
+            Persistence.LaunchesAtStartup();
+
+            // Unless Windows started us, display a bubble with info.
+            if (!Environment.GetCommandLineArgs().Contains(Persistence.AUTOSTART_ARGUMENT))
             {
                 ShowNotification("Mimic will run in the background. Click this notification or the Mimic icon in the system tray for more information and how to connect from your phone.");
             }
+        }
+
+        /**
+         * Switches to the specified Rift server (empty for the shared one) and reconnects.
+         */
+        public void ChangeServer(string address)
+        {
+            Persistence.SetServerAddress(address);
+            Program.SetServer(Persistence.GetServerAddress());
+            Persistence.ClearHubToken();
+            manager.Reconnect();
         }
 
         /**

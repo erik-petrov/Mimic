@@ -31,7 +31,7 @@ docker compose --profile caddy up -d --build
 
 Caddy listens on ports 80 and 443 and gets a certificate for the domain automatically, so the domain must point at the server and those ports must be reachable.
 
-Then point Conduit at your server: write your address, like `https://mimic.example.com`, to `%APPDATA%\Mimic\server` and restart Conduit. It gets a new code from your server, and its QR code opens your address. To keep using the shared Rift instead, set `MIMIC_RIFT_URL=wss://rift.mimic.lol` in `.env`.
+Then point Conduit at your server: open Conduit's Settings from its tray icon, enter your address (like `https://mimic.example.com`) under Server and press Use. Conduit checks that a Mimic server answers there, then gets a new code from it once League is running; its QR code opens your address. Shared goes back to the shared server. (The address is kept in `%APPDATA%\Mimic\server`.) To keep using the shared Rift instead, set `MIMIC_RIFT_URL=wss://rift.mimic.lol` in `.env`.
 
 To update, pull the latest code and run the same `up` command again. Codes survive updates in the `rift_data` volume.
 
