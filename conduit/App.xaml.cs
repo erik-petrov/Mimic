@@ -89,7 +89,7 @@ namespace Conduit
             }
             else
             {
-                codeMenuItem.Text = "Access Code: " + code;
+                codeMenuItem.Text = "Access Code: " + Persistence.FormatCode(code);
             }
         }
 

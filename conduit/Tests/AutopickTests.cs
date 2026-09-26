@@ -27,6 +27,9 @@ namespace Conduit.Tests
         // What the client says can be banned. Null answers [-1], like the real client did.
         public JsonArray Bannable;
 
+        // ARAM Mayhem: the champions dealt to us. Null answers 404, like before they are dealt.
+        public JsonArray Choices;
+
         // The game mode of this champ select, and whether the client ignores spell changes.
         public string GameMode = "CLASSIC";
         public bool IgnoreSpells;
@@ -98,6 +101,7 @@ namespace Conduit.Tests
             }
             if (method == "GET" && path == "/lol-gameflow/v1/session") return Ok(SimpleJson.DeserializeObject("{\"map\":{\"id\":11},\"gameData\":{\"queue\":{\"gameMode\":\"" + GameMode + "\"}}}"));
             if (method == "GET" && path == "/lol-champ-select/v1/session") return Ok(Copy(Session));
+            if (method == "GET" && path == Autopick.CHOICES_PATH) return Choices != null ? Ok(Copy(Choices)) : Fail(404, "No choices");
             if (method == "GET" && path == "/lol-game-data/assets/v1/summoner-spells.json")
             {
                 return Ok(SimpleJson.DeserializeObject("[{\"id\":4,\"gameModes\":[\"CLASSIC\",\"ARAM\"]},{\"id\":7,\"gameModes\":[\"CLASSIC\",\"ARAM\"]},{\"id\":11,\"gameModes\":[\"CLASSIC\"]},{\"id\":12,\"gameModes\":[\"CLASSIC\"]},{\"id\":14,\"gameModes\":[\"CLASSIC\",\"ARAM\"]},{\"id\":32,\"gameModes\":[\"ARAM\"]}]"));
@@ -166,6 +170,8 @@ namespace Conduit.Tests
                 var action = Action(id);
                 if (action == null) return Fail(404, "No action");
                 if (!(bool) action["isInProgress"] && change.ContainsKey("completed")) return Fail(500, "Not your turn");
+                // ARAM Mayhem: only a champion that was dealt can be picked.
+                if (Session.ContainsKey("allowSubsetChampionPicks") && (bool) Session["allowSubsetChampionPicks"] && (Choices == null || !Choices.Contains((long) change["championId"]))) return Fail(400, "Not one of your choices");
 
                 ApplyAction(action, (long) change["championId"], change.ContainsKey("completed") && (bool) change["completed"]);
                 PublishLater();
@@ -239,6 +245,22 @@ namespace Conduit.Tests
         public static JsonObject Copy(JsonObject value)
         {
             return (JsonObject) SimpleJson.DeserializeObject(SimpleJson.SerializeObject(value));
+        }
+
+        public static JsonArray Copy(JsonArray value)
+        {
+            return (JsonArray) SimpleJson.DeserializeObject(SimpleJson.SerializeObject(value));
+        }
+
+        /**
+         * An ARAM Mayhem champ select: everyone picks at once, from the champions dealt to them.
+         */
+        public static JsonObject NewMayhemSession(string id)
+        {
+            var session = NewSession(id, false);
+            session["allowSubsetChampionPicks"] = true;
+            session["benchEnabled"] = true;
+            return session;
         }
 
         private static ApiResult Ok(object content)
@@ -940,6 +962,85 @@ namespace Conduit.Tests
                 var jungle = (JsonObject) roles["jungle"];
                 Equal("[{\"championId\":1,\"skinId\":0,\"spell1Id\":0,\"spell2Id\":0,\"runes\":{\"type\":\"recommended\"}},{\"championId\":2,\"skinId\":0,\"spell1Id\":0,\"spell2Id\":0,\"runes\":{\"type\":\"custom\",\"primaryStyleId\":0,\"subStyleId\":0,\"selectedPerkIds\":[1,2,0,0,0,0,0,0,0]}},{\"championId\":3,\"skinId\":0,\"spell1Id\":0,\"spell2Id\":0,\"runes\":{\"type\":\"recommended\"}},{\"championId\":4,\"skinId\":0,\"spell1Id\":0,\"spell2Id\":0,\"runes\":{\"type\":\"recommended\"}}]", SimpleJson.SerializeObject(jungle["picks"]), "picks");
                 Equal("[7,8]", SimpleJson.SerializeObject(jungle["bans"]), "bans");
+            });
+
+            const string MAYHEM = "[{\"championId\":64},{\"championId\":103},{\"championId\":157}]";
+
+            Scenario("ARAM Mayhem: chooses the first of our champions that was dealt, without hovering", Setup("any", MAYHEM, "[]"), (c, e) =>
+            {
+                c.Choices = FakeClient.Arr(103, 238);
+                c.Session = FakeClient.NewMayhemSession("a");
+                c.Publish();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/11 {\"championId\":103,\"completed\":true}"), "choose Ahri");
+                WaitFor(() => e.Status == "Chose Ahri.", "status");
+                Settle(e);
+                Equal(1, c.Writes().Count(x => x.Contains("/actions/")), "one action write");
+            });
+
+            Scenario("ARAM Mayhem: waits for the lock in delay, then chooses", Setup("any", MAYHEM, "[]"), (c, e) =>
+            {
+                c.Choices = FakeClient.Arr(157, 238);
+                c.Session = FakeClient.NewMayhemSession("a");
+                c.Publish();
+                WaitFor(() => e.Status == "Choosing Yasuo in 1s.", "countdown");
+                True(!c.Writes().Any(x => x.Contains("/actions/")), "nothing chosen yet");
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/11 {\"championId\":157,\"completed\":true}"), "choose Yasuo", 4000);
+            }, delay: 1);
+
+            Scenario("ARAM Mayhem: none of ours dealt: says which were, chooses nothing", Setup("any", MAYHEM, "[]"), (c, e) =>
+            {
+                c.Choices = FakeClient.Arr(238, 875);
+                c.Session = FakeClient.NewMayhemSession("a");
+                c.Publish();
+                WaitFor(() => e.Status == "None of your champions for All roles are among your choices (Zed and Sett). Choose one yourself.", "status");
+                Settle(e);
+                True(!c.Writes().Any(x => x.Contains("/actions/")), "chose nothing");
+            });
+
+            Scenario("ARAM Mayhem: the player chooses first: autopick leaves it to them", Setup("any", MAYHEM, "[]"), (c, e) =>
+            {
+                c.Choices = FakeClient.Arr(103, 238);
+                c.Session = FakeClient.NewMayhemSession("a");
+                c.Publish();
+                WaitFor(() => e.Status == "Choosing Ahri in 2s.", "countdown");
+                c.Change(x => x.ApplyAction(x.Action(11), 238, false));
+                WaitFor(() => e.Status == "You chose Zed, so autopick left the choice to you.", "stand down");
+                Thread.Sleep(2300);
+                Settle(e);
+                True(!c.Writes().Any(x => x.Contains("/actions/")), "chose nothing");
+            }, delay: 2);
+
+            Scenario("ARAM Mayhem: a champion already on the pick when it starts is not the player's choice", Setup("any", MAYHEM, "[]"), (c, e) =>
+            {
+                c.Choices = FakeClient.Arr(875, 103);
+                c.Session = FakeClient.NewMayhemSession("a");
+                c.Action(11)["championId"] = 875L;
+                c.Publish();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/11 {\"championId\":103,\"completed\":true}"), "choose Ahri");
+            });
+
+            Scenario("ARAM Mayhem: champions dealt late: waits for them", Setup("any", MAYHEM, "[]"), (c, e) =>
+            {
+                c.Session = FakeClient.NewMayhemSession("a");
+                c.Publish();
+                WaitFor(() => e.Status == "Waiting for the champions you can choose from.", "waiting");
+                lock (c) c.Choices = FakeClient.Arr(64, 238);
+                c.Publish();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/11 {\"championId\":64,\"completed\":true}"), "choose Lee Sin");
+            });
+
+            Scenario("plain ARAM: no choosing, sets up the champion we were given", Setup("any", "[{\"championId\":103,\"spell1Id\":4,\"spell2Id\":32}]", "[]"), (c, e) =>
+            {
+                c.GameMode = "ARAM";
+                var session = FakeClient.NewSession("a", false);
+                session["benchEnabled"] = true;
+                session["actions"] = new JsonArray();
+                ((JsonObject) ((JsonArray) session["myTeam"])[1])["championId"] = 103L;
+                c.Session = session;
+                c.Publish();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":4,\"spell2Id\":32}"), "spells");
+                True(!c.Writes().Any(x => x.Contains("/actions/")), "no pick");
+                True(!c.Calls.Any(x => x.Contains(Autopick.CHOICES_PATH)), "didn't ask for choices");
             });
 
             Scenario("requests from the phone", Setup("jungle", LEE_FULL, "[]"), (c, e) =>

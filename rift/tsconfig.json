@@ -2,12 +2,12 @@
   "compilerOptions": {
     "noImplicitAny": true,
     "strictNullChecks": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "alwaysStrict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
     "outDir": "dist",
     "module": "commonjs",
-    "target": "es2018"
+    "target": "es2022"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]

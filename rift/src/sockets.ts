@@ -1,12 +1,9 @@
-import { Server as WebSocketServer, VerifyClientCallbackAsync } from "ws";
-import WebSocket = require("ws");
-import * as url from "url";
-import * as jwt from "jsonwebtoken";
+import WebSocket, { WebSocketServer, RawData, VerifyClientCallbackAsync } from "ws";
+import jwt from "jsonwebtoken";
+import * as crypto from "crypto";
 import * as db from "./database";
-import * as uuid from "uuid";
-import { Socket } from "net";
+import { Duplex } from "stream";
 import { IncomingMessage } from "http";
-import { URL } from "url";
 import { RiftOpcode } from "./types";
 
 /**
@@ -57,9 +54,9 @@ export default class WebSocketManager {
      * server should handle the specified request. If an invalid path is given,
      * the socket is just terminated.
      */
-    public handleUpgradeRequest = async (request: IncomingMessage, socket: Socket, head: Buffer) => {
+    public handleUpgradeRequest = async (request: IncomingMessage, socket: Duplex, head: Buffer) => {
         if (!request.url) return socket.destroy();
-        const pathname = url.parse(request.url).pathname;
+        const pathname = new URL(request.url, "http://rift").pathname;
 
         if (pathname === "/conduit") {
             this.conduitServer.handleUpgrade(request, socket, head, ws => {
@@ -79,7 +76,7 @@ export default class WebSocketManager {
      * Ensures that a Conduit client connecting to us has a valid JWT
      * and a proper public key. Closes the connection if the request is invalid.
      */
-    private verifyConduitClient: VerifyClientCallbackAsync = async (info, cb) => {
+    private verifyConduitClient: VerifyClientCallbackAsync<IncomingMessage> = async (info, cb) => {
         try {
             // The URL constructor needs a full URL, but we only get a relative one.
             // Since we don't care about anything but the query params anyway, we can use
@@ -99,7 +96,7 @@ export default class WebSocketManager {
                 });
             });
 
-            const isValidCode = await db.potentiallyUpdate(decoded.code, pubkey);
+            const isValidCode = typeof decoded.code === "string" && db.potentiallyUpdate(decoded.code, pubkey);
             if (!isValidCode) return cb(false, 401, "Unauthorized");
 
             // Everything is good, allow the connection.
@@ -146,9 +143,9 @@ export default class WebSocketManager {
     /**
      * Handles a websocket message sent by a Conduit instance to Rift.
      */
-    private handleConduitMessage = (ws: WebSocket) => async (msg: string) => {
+    private handleConduitMessage = (ws: WebSocket) => async (msg: RawData) => {
         try {
-            const [op, ...args] = JSON.parse(msg);
+            const [op, ...args] = JSON.parse(msg.toString());
 
             if (op === RiftOpcode.REPLY) {
                 const [peer, message] = args;
@@ -164,7 +161,7 @@ export default class WebSocketManager {
                 throw new Error("Conduit sent invalid opcode.");
             }
         } catch (e) {
-            console.log("[-] Error handling conduit message: " + e.message);
+            console.log("[-] Error handling conduit message: " + (e instanceof Error ? e.message : e));
             console.log(e);
             ws.close();
         }
@@ -201,9 +198,9 @@ export default class WebSocketManager {
     /**
      * Handles a message sent by a mobile peer to Rift.
      */
-    private handleMobileMessage = (ws: WebSocket) => async (msg: string) => {
+    private handleMobileMessage = (ws: WebSocket) => async (msg: RawData) => {
         try {
-            const [op, ...args] = JSON.parse(msg);
+            const [op, ...args] = JSON.parse(msg.toString());
 
             if (op === RiftOpcode.CONNECT) {
                 // If this client is trying to connect while already connected, close.
@@ -213,28 +210,28 @@ export default class WebSocketManager {
                 const done = (result: string | null) => ws.send(JSON.stringify([RiftOpcode.CONNECT_PUBKEY, result]));
 
                 // Look up public key, send null if it doesn't exist.
-                const pubkey = await db.lookup(code);
+                const pubkey = db.lookup(code);
                 if (!pubkey) {
-                    console.log("[-] A phone asked for code " + code + ", which was never registered with this Rift.");
+                    console.log("[-] A phone asked for code " + String(code).slice(0, 24) + ", which was never registered with this Rift.");
                     return done(null);
                 }
 
                 // Look up the conduit connection, send null if conduit is not connected.
-                const conduit = this.conduitConnections.get(code);
+                const conduit = this.conduitConnections.get(pubkey.code);
                 if (!conduit) {
-                    console.log("[-] A phone asked for code " + code + ", but that Conduit is not connected right now.");
+                    console.log("[-] A phone asked for code " + String(code).slice(0, 24) + ", but that Conduit is not connected right now.");
                     return done(null);
                 }
 
                 // Generate a random connection ID.
-                const connectionID = uuid.v4();
+                const connectionID = crypto.randomUUID();
 
                 let conns = this.conduitToMobileMap.get(conduit);
                 if (!conns) this.conduitToMobileMap.set(conduit, conns = []);
 
                 conns.push({ socket: ws, uuid: connectionID });
                 this.mobileToConduitMap.set(ws, { socket: conduit, uuid: connectionID });
-                console.log("[+] Peer connected to " + code + " as " + connectionID);
+                console.log("[+] Peer connected to " + pubkey.code + " as " + connectionID);
 
                 // Send the public key to client, inform conduit of new connection.
                 conduit.send(JSON.stringify([RiftOpcode.OPEN, connectionID]));
@@ -250,7 +247,7 @@ export default class WebSocketManager {
                 throw new Error("Mobile sent invalid opcode.");
             }
         } catch (e) {
-            console.log("[-] Error handling mobile message: " + e.message);
+            console.log("[-] Error handling mobile message: " + (e instanceof Error ? e.message : e));
             console.log(e);
             ws.close();
         }

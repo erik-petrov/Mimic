@@ -3,11 +3,11 @@
         <!-- If no socket, show connection info. -->
         <template v-if="!socket">
             <h2>Welcome to Mimic!</h2>
-            <p>Enter your computer code to start controlling League from your phone. You can find the code by
-                right-clicking on the Mimic icon in the bottom right of your computer.</p>
+            <p>Scan the QR code on your computer, or enter its code to start controlling League from your phone.
+                You can find both by right-clicking on the Mimic icon in the bottom right of your computer.</p>
 
             <code-entry class="code" v-model="code"></code-entry>
-            <lcu-button class="button" :disabled="code.length !== 6" @click="connect">Connect!</lcu-button>
+            <lcu-button class="button" :disabled="!isCompleteCode(code)" @click="connect">Connect!</lcu-button>
         </template>
 
         <!-- Failed getting a public key. Either the computer is offline or the code is incorrect. -->
@@ -64,6 +64,7 @@
 <script lang="ts">
     import RiftSocket, { riftHost, RiftSocketState } from "./rift-socket";
     import CodeEntry from "./code-entry.vue";
+    import { isCompleteCode, normalizeCode } from "./code";
     import { Component, Prop, Vue } from "vue-property-decorator";
 
     let didFirstMount = false;
@@ -83,17 +84,21 @@
             if (!didFirstMount) {
                 didFirstMount = true;
 
-                const match = /\?code=(\d+)$/.exec(location.search);
-                if (!match) return;
+                const fromUrl = new URLSearchParams(location.search).get("code");
+                if (!fromUrl) return;
 
                 // Clear the code from the URL in case the user ends up adding it to the homescreen.
                 // The code gets saved anyway and this saves us the inconvenience of the user linking it to
                 // their homescreen and then getting their code changed.
                 window.history.replaceState("", "", window.location.pathname);
 
-                this.code = match[1];
+                this.code = normalizeCode(fromUrl);
                 this.connect();
             }
+        }
+
+        isCompleteCode(code: string) {
+            return isCompleteCode(code);
         }
 
         connect() {

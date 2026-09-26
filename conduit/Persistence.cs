@@ -136,6 +136,16 @@ namespace Conduit
         }
 
         /**
+         * Returns the code split in two halves, so it's easier to read and type. Phones
+         * accept it with or without the space.
+         */
+        public static string FormatCode(string code)
+        {
+            if (code == null || code.Length != 10) return code;
+            return code.Substring(0, 5) + " " + code.Substring(5);
+        }
+
+        /**
          * Writes the specified new hub JWT to storage.
          */
         public static void SetHubToken(string token)

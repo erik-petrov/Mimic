@@ -2,17 +2,21 @@
 
 The server-side tunneling components for Mimic that faciliates communication between the mobile clients and Conduit instances without those Conduit instances needing to be exposed to the internet. This is also the component responsible for assigning unique identifiers to Conduit instances for them to identify themselves. All traffic going through Rift is encrypted; Rift (and thus whoever is hosting Rift) cannot read your messages or other sensitive traffic.
 
-Rift is built using [Node.js](https://nodejs.org) and [TypeScript](https://www.typescriptlang.org). The database is powered by SQLite.
+Rift is built using [Node.js](https://nodejs.org) and [TypeScript](https://www.typescriptlang.org). The database is SQLite, through the `node:sqlite` module built into Node.
 
 ## Development
 
-You will need [Yarn](https://yarnpkg.com/lang/en/) for developing the Rift component, and at least Node 7+ for the async-await components.
+You will need [Yarn](https://yarnpkg.com/lang/en/) 1 for developing the Rift component, and Node 22.13 or newer for the built-in SQLite module. The Docker image uses Node 24.
 
 After checking out the source, run `yarn install` to install all dependencies. You will only need to do this after pulling updates from Github.
 
 During development, you can use `yarn watch` to automatically compile TypeScript files once they are edited. However, it is recommended to simply use `yarn start` to start the application, since this will also compile all TypeScript files into Javascript files.
 
 `yarn bundle` acts the same as `yarn watch`, except it will only compile the files once and not listen for edits.
+
+## Codes
+
+Rift gives each Conduit a code of 10 characters: digits and capital letters, without 0, O, 1, I and L. Phones can type it in any case, with spaces or dashes. Rift removes the 6 digit codes of older versions when it starts; their Conduits register again and get a new code the next time they connect.
 
 ## Configuration
 

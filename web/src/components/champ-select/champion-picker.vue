@@ -4,7 +4,8 @@
             <i class="ion-minus close" @click="$emit('close')"></i>
             <div class="header">{{ header }}</div>
 
-            <champion-grid :champions="gridChampions" :selected="selectedChampion" @select="selectChampion($event)"></champion-grid>
+            <div class="empty" v-if="emptyText">{{ emptyText }}</div>
+            <champion-grid v-else :champions="gridChampions" :selected="selectedChampion" @select="selectChampion($event)"></champion-grid>
 
             <lcu-button @click="completeAction" :disabled="!canCompleteAction" :type="buttonType">
                 {{ buttonText }}
@@ -58,5 +59,13 @@
             padding-bottom 20px
             font-family "LoL Body"
             font-size 60px
+
+        .empty
+            flex 1
+            padding 60px
+            text-align center
+            font-family "LoL Body"
+            font-size 45px
+            color #a09b8c
 
 </style>

@@ -1,11 +1,9 @@
 
 declare module "http" {
-    class IncomingMessage {
-        code: string;
+    interface IncomingMessage {
+        // The code of the Conduit connecting, set once its token is checked.
+        code?: string;
     }
-
-    // ws refers to this interface but newer node functions don't have it.
-    interface OutgoingHttpHeaders {}
 }
 
 /**

@@ -156,7 +156,7 @@ namespace Conduit
                 ConnectionQR.Source = qrCode.GetGraphic(20);
                 ConnectionQR.Visibility = Visibility.Visible;
 
-                CodeLabel.Content = Persistence.GetHubCode();
+                CodeLabel.Content = Persistence.FormatCode(Persistence.GetHubCode());
                 CodeLabel.Visibility = Visibility.Visible;
 
                 ConnectionSteps.Visibility = Visibility.Visible;

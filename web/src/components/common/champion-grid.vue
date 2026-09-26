@@ -6,7 +6,7 @@
             <a class="champion-option" v-for="champion in shownChampions" :key="champion.id">
                 <img @click="$emit('select', champion.id)" :class="selected === champion.id && 'selected'" :src="icon(champion.id)">
                 <div class="name">{{ shortName(champion) }}</div>
-                <div class="tag" v-if="isClassic(champion)">Classic</div>
+                <div class="tag" v-if="tag(champion)">{{ tag(champion) }}</div>
             </a>
         </div>
     </div>

@@ -29,7 +29,7 @@ Mimic is composed of three different components: **web**, **conduit** and **rift
 
 - [**Conduit**](/conduit) is the Windows application that redirects client traffic to the mobile website. It is written in C# and uses Websockets to connect to both the LCU and the mobile client.
 
-- [**Rift**](/rift) is a Node/Express application that is responsible for tunneling a `Web <-> Conduit` connection through a central server. It also keeps track of the 6-digit codes issued to clients, doing so by signing JWT tokens. It does not get into contact with any raw data, since all traffic is end-to-end encrypted.
+- [**Rift**](/rift) is a Node/Express application that is responsible for tunneling a `Web <-> Conduit` connection through a central server. It also keeps track of the codes issued to clients (10 characters on this fork's Rift), doing so by signing JWT tokens. It does not get into contact with any raw data, since all traffic is end-to-end encrypted.
 
 ## License
 

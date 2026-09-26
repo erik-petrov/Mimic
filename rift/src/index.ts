@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 51001;
     }
 
     console.log("[+] Starting rift...");
-    await db.create();
+    db.create();
 
     const server = http.createServer(app);
 

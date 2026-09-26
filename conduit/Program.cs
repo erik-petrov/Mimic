@@ -5,7 +5,7 @@ namespace Conduit
     class Program
     {
         public static string APP_NAME = "Mimic Conduit";
-        public static string VERSION = "2.4.0";
+        public static string VERSION = "2.5.0";
 
         // The Rift server to register with. Defaults to the shared one; Settings can change it, and
         // it is kept in %APPDATA%\Mimic\server.

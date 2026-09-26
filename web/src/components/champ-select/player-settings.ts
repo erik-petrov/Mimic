@@ -40,7 +40,7 @@ export default class PlayerSettings extends Vue {
      * @returns if we have enough points to reroll
      */
     get canReroll(): boolean {
-        return this.allowsReroll && this.$parent.rerollState.numberOfRolls >= 1;
+        return this.allowsReroll && this.state.allowRerolling !== false && this.$parent.rerollState.numberOfRolls >= 1;
     }
 
     /**
