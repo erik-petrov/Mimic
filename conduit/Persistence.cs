@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Serialization;
@@ -25,6 +26,15 @@ namespace Conduit
 
         public const string DEFAULT_SERVER = "https://rift.mimic.lol";
         private static readonly RegistryKey BOOT_KEY = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+
+        // Where Task Manager's Startup tab keeps apps that were switched off there.
+        private const string STARTUP_APPROVED_PATH = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
+
+        // Passed to Conduit when Windows starts it, so it knows it wasn't started by hand.
+        public const string AUTOSTART_ARGUMENT = "--autostart";
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool DeleteFile(string path);
 
         static Persistence()
         {
@@ -53,6 +63,20 @@ namespace Conduit
             }
 
             return DEFAULT_SERVER;
+        }
+
+        /**
+         * Stores the address of the Rift server to use. Null or empty goes back to the shared server.
+         */
+        public static void SetServerAddress(string address)
+        {
+            if (string.IsNullOrWhiteSpace(address) || address.Trim().TrimEnd('/') == DEFAULT_SERVER)
+            {
+                if (File.Exists(SERVER_PATH)) File.Delete(SERVER_PATH);
+                return;
+            }
+
+            File.WriteAllText(SERVER_PATH, address.Trim().TrimEnd('/'));
         }
 
         /**
@@ -123,6 +147,24 @@ namespace Conduit
         }
 
         /**
+         * Forgets the hub token, so that Conduit registers again. Used when switching servers,
+         * since a token (and its code) only works on the server that gave it out.
+         */
+        public static void ClearHubToken()
+        {
+            try
+            {
+                if (File.Exists(HUB_TOKEN_PATH)) File.Delete(HUB_TOKEN_PATH);
+            }
+            catch
+            {
+                // Registering again replaces it anyway.
+            }
+
+            OnHubCodeChanged?.Invoke();
+        }
+
+        /**
          * Checks if the specified device UUID has been seen and approved before.
          */
         public static bool IsDeviceApproved(string deviceUUID)
@@ -161,19 +203,28 @@ namespace Conduit
         }
 
         /**
-         * Checks if conduit is configured to launch at startup.
+         * The command Windows runs at startup. The path is quoted, because Windows can't start an
+         * unquoted path with spaces in it (like C:\Users\First Last\Downloads\Conduit.exe).
+         */
+        public static string StartupCommand()
+        {
+            return "\"" + Assembly.GetExecutingAssembly().Location + "\" " + AUTOSTART_ARGUMENT;
+        }
+
+        /**
+         * Checks if conduit is configured to launch at startup, and not switched off in Task Manager.
          */
         public static bool LaunchesAtStartup()
         {
-            // Update path to current executable if we moved.
             var exists = BOOT_KEY.GetValue(Program.APP_NAME) != null;
 
-            if (exists)
+            // Update the command, in case Conduit moved or an older version wrote it unquoted.
+            if (exists && (string) BOOT_KEY.GetValue(Program.APP_NAME) != StartupCommand())
             {
-                BOOT_KEY.SetValue(Program.APP_NAME, Assembly.GetExecutingAssembly().Location);
+                BOOT_KEY.SetValue(Program.APP_NAME, StartupCommand());
             }
 
-            return exists;
+            return exists && !IsDisabledInTaskManager();
         }
 
         /**
@@ -183,10 +234,47 @@ namespace Conduit
         {
             if (LaunchesAtStartup())
             {
-                BOOT_KEY.DeleteValue(Program.APP_NAME);
-            } else
+                BOOT_KEY.DeleteValue(Program.APP_NAME, false);
+                return;
+            }
+
+            BOOT_KEY.SetValue(Program.APP_NAME, StartupCommand());
+
+            // Switching it on here also undoes switching it off in Task Manager.
+            try
             {
-                BOOT_KEY.SetValue(Program.APP_NAME, Assembly.GetExecutingAssembly().Location);
+                using (var approved = Registry.CurrentUser.OpenSubKey(STARTUP_APPROVED_PATH, true))
+                {
+                    approved?.DeleteValue(Program.APP_NAME, false);
+                }
+            }
+            catch
+            {
+                // Nothing to undo.
+            }
+
+            // Windows marks downloaded files, and can ask "Do you want to run this file?" before
+            // starting a marked file at startup. Remove the mark, like Properties > Unblock does.
+            DeleteFile(Assembly.GetExecutingAssembly().Location + ":Zone.Identifier");
+        }
+
+        /**
+         * Whether Conduit was switched off in Task Manager's Startup tab. Windows keeps that as a
+         * binary value whose first byte is odd when the app is switched off.
+         */
+        private static bool IsDisabledInTaskManager()
+        {
+            try
+            {
+                using (var approved = Registry.CurrentUser.OpenSubKey(STARTUP_APPROVED_PATH, false))
+                {
+                    var value = approved?.GetValue(Program.APP_NAME) as byte[];
+                    return value != null && value.Length > 0 && (value[0] & 1) == 1;
+                }
+            }
+            catch
+            {
+                return false;
             }
         }
 

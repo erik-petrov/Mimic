@@ -161,6 +161,16 @@ namespace Conduit
         }
 
         /**
+         * Connects to Rift again, for example after switching to a different server. The old
+         * server's token fails the check on the new one, so Conduit registers and gets a new code.
+         */
+        public void Reconnect()
+        {
+            Close();
+            Connect();
+        }
+
+        /**
          * Closes all connections _without_ queueing a reconnect.
          */
         public void Close()
