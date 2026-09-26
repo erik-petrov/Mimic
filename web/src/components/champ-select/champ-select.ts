@@ -9,7 +9,6 @@ import PlayerSettings from "./player-settings.vue";
 import SummonerPicker from "./summoner-picker.vue";
 import ChampionPicker from "./champion-picker.vue";
 import RuneEditor from "./rune-editor.vue";
-import Bench from "./bench.vue";
 import SkinPicker from "./skin-picker.vue";
 import SwapPrompt from "./swap-prompt.vue";
 import RuneRecommendations from "./rune-recommendations.vue";
@@ -72,9 +71,20 @@ export interface ChampSelectState {
     pickOrderSwaps: SwapContract[];
     positionSwaps: SwapContract[];
 
+    // ARAM: champions anyone on the team can swap for, and rerolls.
     benchEnabled: boolean;
     benchChampions: { championId: number, isPriority: boolean }[];
+    allowRerolling?: boolean;
+
+    // ARAM Mayhem: each player chooses from a few champions dealt to them.
+    allowSubsetChampionPicks?: boolean;
+
+    // Custom games use the older champ select, which only knows the /lol-champ-select paths.
+    isLegacyChampSelect?: boolean;
 }
+
+// The champions ARAM Mayhem deals each player to choose from, 2 or 3 of them.
+export const DEALT_CHAMPIONS_PATH = "/lol-lobby-team-builder/champ-select/v1/subset-champion-list";
 
 export type SwapState = "ACCEPTED" | "AVAILABLE" | "BUSY" | "CANCELLED" | "DECLINED" | "INVALID" | "RECEIVED" | "SENT";
 
@@ -151,7 +161,6 @@ export interface SkinItem {
         summonerPicker: SummonerPicker,
         championPicker: ChampionPicker,
         runeEditor: RuneEditor,
-        bench: Bench,
         skinPicker: SkinPicker,
         swapPrompt: SwapPrompt,
         runeRecommendations: RuneRecommendations
@@ -191,8 +200,9 @@ export default class ChampSelect extends Vue {
     // Information for the list of recommended rune pages.
     showingRecommendations = false;
 
-    // Information for the reroll bench.
-    showingBench = false;
+    // ARAM Mayhem: the champions dealt to us, and the champ select they were dealt in.
+    dealtChampions: number[] = [];
+    dealtFor = "";
 
     mounted() {
         this.loadStatic("summoner.json").then(map => {
@@ -233,9 +243,11 @@ export default class ChampSelect extends Vue {
     handleChampSelectChange = async function(this: ChampSelect, result: Result) {
         if (result.status !== 200) {
             this.state = null;
+            this.dealtChampions = [];
+            this.dealtFor = "";
             return;
         }
-        
+
         const newState: ChampSelectState = result.content;
         newState.localPlayer = newState.myTeam.filter(x => x.cellId === newState.localPlayerCellId)[0];
 
@@ -278,6 +290,8 @@ export default class ChampSelect extends Vue {
 
         const oldAction = this.state ? this.getActions(this.state.localPlayer) : undefined;
         this.state = newState;
+
+        if (newState.allowSubsetChampionPicks) this.loadDealtChampions(newState);
 
         const newAction = this.getActions(this.state.localPlayer);
         // If we didn't have an action and have one now, or if the actions differ in id, present the champion picker.
@@ -345,6 +359,48 @@ export default class ChampSelect extends Vue {
     }
 
     /**
+     * ARAM Mayhem: loads the champions dealt to us, until the client has dealt them.
+     */
+    async loadDealtChampions(state: ChampSelectState) {
+        const key = (<any>state).id + ":" + (<any>state).gameId;
+        if (this.dealtFor === key && this.dealtChampions.length) return;
+        this.dealtFor = key;
+
+        const result = await this.$root.request(DEALT_CHAMPIONS_PATH);
+        if (this.dealtFor !== key) return;
+        this.dealtChampions = result.status === 200 && Array.isArray(result.content) ? result.content.filter((x: number) => x > 0) : [];
+    }
+
+    /**
+     * @returns whether we still have to choose one of the champions ARAM Mayhem dealt us
+     */
+    get choosingDealtChampion(): boolean {
+        if (!this.state || !this.state.allowSubsetChampionPicks) return false;
+        const allActions = (<ChampSelectAction[]>[]).concat(...this.state.actions);
+        return allActions.some(x => x.type === "pick" && x.actorCellId === this.state!.localPlayerCellId && !x.completed);
+    }
+
+    /**
+     * Sends a champ select request. Matchmade games answer on /lol-champ-select, but if the
+     * client refuses it there, try the team builder that runs them, which answers the same.
+     */
+    async champSelectRequest(path: string, method: string, body?: string): Promise<Result> {
+        const result = await this.$root.request("/lol-champ-select/v1/session/" + path, method, body);
+        if ((result.status >= 200 && result.status < 300) || !this.state || this.state.isLegacyChampSelect) return result;
+
+        const retry = await this.$root.request("/lol-lobby-team-builder/champ-select/v1/session/" + path, method, body);
+        return retry.status >= 200 && retry.status < 300 ? retry : result;
+    }
+
+    /**
+     * ARAM: swaps our champion for the specified one on the bench.
+     */
+    async benchSwap(championId: number) {
+        const result = await this.champSelectRequest("bench/swap/" + championId, "POST");
+        if (result.status >= 300) this.$root.showNotification("Could not swap for " + this.championName(championId) + " (error " + result.status + ").");
+    }
+
+    /**
      * @returns the name of the specified champion, in the client's language
      */
     championName(id: number): string {
@@ -372,13 +428,11 @@ export default class ChampSelect extends Vue {
     /**
      * Requests, accepts, declines or cancels the specified swap.
      */
-    swapAction(kind: SwapKind, swap: SwapContract, action: "request" | "accept" | "decline" | "cancel") {
-        this.$root.request(`/lol-champ-select/v1/session/${SWAP_ENDPOINTS[kind]}/${swap.id}/${action}`, "POST");
+    async swapAction(kind: SwapKind, swap: SwapContract, action: "request" | "accept" | "decline" | "cancel") {
+        const result = await this.champSelectRequest(`${SWAP_ENDPOINTS[kind]}/${swap.id}/${action}`, "POST");
+        if (result.status >= 300) this.$root.showNotification("The League client refused that (error " + result.status + ").");
     }
 
-    /**
-     * @returns the champion the local player has picked or is hovering, or 0 if none
-     */
     /**
      * @returns what autopick is doing in this champ select, or "" to show nothing
      */
@@ -396,6 +450,9 @@ export default class ChampSelect extends Vue {
         if (result.status !== 200) this.$root.showNotification("Could not stop autopick (error " + result.status + ").");
     }
 
+    /**
+     * @returns the champion the local player has picked or is hovering, or 0 if none
+     */
     get localChampionId(): number {
         if (!this.state) return 0;
 

@@ -10,9 +10,9 @@
                 <span>Reroll {{ rerollState }}</span>
             </a>
 
-            <a class="bench-button bordered" @click="$emit('bench')">
+            <a class="bench-button bordered" @click="$emit('expand')">
                 <i class="ion-chevron-up" style="margin-right: 15px"></i>
-                Bench
+                Champions
             </a>
         </div>
 

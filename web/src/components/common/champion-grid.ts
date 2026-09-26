@@ -5,6 +5,8 @@ import { championIcon } from "@/constants";
 export interface GridEntry {
     id: number;
     name: string;
+    // Shown under the name, like where an ARAM champion would come from.
+    tag?: string;
 }
 
 /**
@@ -38,6 +40,13 @@ export default class ChampionGrid extends Vue {
      */
     isClassic(champion: GridEntry) {
         return champion.id >= 60000;
+    }
+
+    /**
+     * @returns the tag shown under the name: the entry's own, or Classic for League Classic champions
+     */
+    tag(champion: GridEntry) {
+        return champion.tag || (this.isClassic(champion) ? "Classic" : "");
     }
 
     /**

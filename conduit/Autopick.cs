@@ -49,6 +49,9 @@ namespace Conduit
         // League Classic offers them, and it offers only them.
         public const long CLASSIC_OFFSET = 60000;
 
+        // The champions ARAM Mayhem deals each player to choose from, 2 or 3 of them.
+        public const string CHOICES_PATH = "/lol-lobby-team-builder/champ-select/v1/subset-champion-list";
+
         // Smite belongs to the jungler: the client refuses it for other positions and won't take it
         // off a jungler. Flash is what a jungler keeps next to it.
         public const long SMITE = 11;
@@ -450,6 +453,15 @@ namespace Conduit
                 await LoadChampionNames();
             }
 
+            // ARAM Mayhem deals each player a few champions to choose from. Only those can be
+            // picked, so ask for them until the client has dealt them.
+            var choosing = Bool(s, "allowSubsetChampionPicks");
+            if (choosing && p.Choices == null)
+            {
+                p.Choices = await IdSet(CHOICES_PATH);
+                if (p.Choices != null && !p.Choices.Any(x => x > 0)) p.Choices = null;
+            }
+
             var actions = Actions(s);
             var phase = Str(Get(s, "timer") as JsonObject, "phase") ?? "";
 
@@ -503,6 +515,11 @@ namespace Conduit
 
             // Our pick: hover it before our turn, lock it in on our turn.
             var myPick = actions.FirstOrDefault(a => Str(a, "type") == "pick" && Num(a, "actorCellId") == me && !Bool(a, "completed"));
+            if (myPick != null && !p.PickStoodDown && picks.Count > 0 && choosing)
+            {
+                await Choose(s, p, myPick, picks, phase, delay, pickRoleName);
+                return;
+            }
             if (myPick != null && !p.PickStoodDown && picks.Count > 0)
             {
                 await Pick(s, p, myPick, picks, canPick, phase, delay, pickRoleName);
@@ -650,6 +667,64 @@ namespace Conduit
             p.PickStoodDown = true;
             var result = await Complete(id, choice);
             SetStatus(result.Ok ? "Locked in " + Name(choice) + "." : "The League client refused to lock in " + Name(choice) + Describe(result) + ".");
+        }
+
+        /**
+         * ARAM Mayhem: picks the first of our champions among the ones the client dealt us. Only
+         * those can be picked, and the client takes a choice at once, so there's nothing to hover.
+         */
+        private async Task Choose(JsonObject s, SessionProgress p, JsonObject action, List<JsonObject> picks, string phase, int delay, string roleName)
+        {
+            var id = Num(action, "id");
+            var current = Num(action, "championId");
+
+            if (p.PickActionId != id)
+            {
+                p.PickActionId = id;
+                p.ChoiceAtStart = current;
+                p.PickLockAt = DateTime.MinValue;
+            }
+
+            // The player chose one themselves.
+            if (current != 0 && current != p.ChoiceAtStart)
+            {
+                p.PickStoodDown = true;
+                SetStatus("You chose " + Name(current) + ", so autopick left the choice to you.");
+                return;
+            }
+
+            if (p.Choices == null)
+            {
+                SetStatus("Waiting for the champions you can choose from.");
+                return;
+            }
+
+            var choice = picks.Select(x => Num(x, "championId")).FirstOrDefault(c => c > 0 && p.Choices.Contains(c));
+            if (choice == 0)
+            {
+                p.PickStoodDown = true;
+                var dealt = p.Choices.Where(x => x > 0).Select(Name).ToList();
+                SetStatus("None of your champions for " + roleName + " are among your choices (" + JoinList(dealt) + "). Choose one yourself.");
+                return;
+            }
+
+            if (!Bool(action, "isInProgress") || phase != "BAN_PICK")
+            {
+                SetStatus("Autopick chooses " + Name(choice) + " when you can.");
+                return;
+            }
+
+            if (p.PickLockAt == DateTime.MinValue) p.PickLockAt = LockTime(s, delay);
+            var wait = p.PickLockAt - DateTime.UtcNow;
+            if (wait > TimeSpan.Zero)
+            {
+                SetStatus("Choosing " + Name(choice) + " in " + Math.Ceiling(wait.TotalSeconds) + "s.");
+                return;
+            }
+
+            p.PickStoodDown = true;
+            var result = await Complete(id, choice);
+            SetStatus(result.Ok ? "Chose " + Name(choice) + "." : "The League client refused to choose " + Name(choice) + Describe(result) + ".");
         }
 
         private void StandDownBan(SessionProgress p, string message)
@@ -1193,6 +1268,10 @@ namespace Conduit
             public long PickActionId = -1;
             public DateTime PickLockAt;
             public bool PickStoodDown;
+
+            // ARAM Mayhem: the champions dealt to us, and the champion on our pick when it started.
+            public HashSet<long> Choices;
+            public long ChoiceAtStart;
 
             // Champion and position the skin, spells and runes were set for, and the setup used.
             public string ExtrasFor;
