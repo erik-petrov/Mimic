@@ -10,7 +10,8 @@ $approved = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApp
 function Fail([string]$message) { Write-Host "FAIL $message" -ForegroundColor Red; exit 1 }
 function Pass([string]$message) { Write-Host "PASS $message" -ForegroundColor Green }
 
-$folder = Join-Path $env:TEMP "Mimic check with space"
+# Under the user profile, which is in long form; TEMP can be in 8.3 form (RUNNER~1).
+$folder = Join-Path $env:USERPROFILE "Mimic check with space"
 New-Item -ItemType Directory -Force -Path $folder | Out-Null
 $copy = Join-Path $folder "Conduit.exe"
 Copy-Item $Exe $copy -Force
@@ -61,4 +62,5 @@ Stop-Process -Id $process.ProcessId -Force
 & $toggle
 if ((Get-ItemProperty -Path $run -Name $name -ErrorAction SilentlyContinue) -ne $null) { Fail "switching it off left the startup command" }
 Pass "switching it off removes the startup command"
+Remove-Item -Recurse -Force $folder -ErrorAction SilentlyContinue
 Write-Host "ALL PASSED"
