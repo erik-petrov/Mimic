@@ -45,9 +45,13 @@ namespace Conduit
         // If the client has no room for a temporary rune page, autopick writes into the page with this name.
         public const string FALLBACK_PAGE_NAME = "FOR_MIMIC";
 
+        // League Classic champions are the same champions with this added to their id. Only
+        // League Classic offers them, and it offers only them.
+        public const long CLASSIC_OFFSET = 60000;
+
         private static readonly Dictionary<string, string> ROLE_NAMES = new Dictionary<string, string>
         {
-            { "top", "Top" }, { "jungle", "Jungle" }, { "middle", "Mid" }, { "bottom", "Bot" }, { "utility", "Support" }, { "any", "Any role" }
+            { "top", "Top" }, { "jungle", "Jungle" }, { "middle", "Mid" }, { "bottom", "Bot" }, { "utility", "Support" }, { "any", "All roles" }
         };
 
         private readonly ILeagueApi api;
@@ -396,17 +400,32 @@ namespace Conduit
             var local = Members(s, "myTeam").FirstOrDefault(x => Num(x, "cellId") == me);
             if (local == null) return;
 
-            // Which role's setup to use. Queues without roles use "any".
+            // Use the setup of the role League gave us. "All roles" ("any") fills in whatever that
+            // role doesn't have (picks and bans separately), and is all there is in queues without roles.
             var position = (Str(local, "assignedPosition") ?? "").ToLowerInvariant();
             var roleKey = ROLES.Contains(position) && position != "any" ? position : "any";
-            var role = setup[roleKey] as JsonObject;
+            var role = (JsonObject) setup[roleKey];
+            var all = (JsonObject) setup["any"];
+
             var picks = ((JsonArray) role["picks"]).Cast<JsonObject>().ToList();
+            var pickRoleName = ROLE_NAMES[roleKey];
+            if (picks.Count == 0)
+            {
+                picks = ((JsonArray) all["picks"]).Cast<JsonObject>().ToList();
+                pickRoleName = ROLE_NAMES["any"];
+            }
+
             var bans = ((JsonArray) role["bans"]).Select(x => Num(x)).ToList();
-            var roleName = ROLE_NAMES[roleKey];
+            var banRoleName = ROLE_NAMES[roleKey];
+            if (bans.Count == 0)
+            {
+                bans = ((JsonArray) all["bans"]).Select(x => Num(x)).ToList();
+                banRoleName = ROLE_NAMES["any"];
+            }
 
             if (picks.Count == 0 && bans.Count == 0)
             {
-                SetStatus("Autopick has nothing set up for " + roleName + ".");
+                SetStatus(roleKey == "any" ? "Autopick has nothing set up for All roles." : "Autopick has nothing set up for " + ROLE_NAMES[roleKey] + " or All roles.");
                 return;
             }
 
@@ -421,6 +440,18 @@ namespace Conduit
 
             var actions = Actions(s);
             var phase = Str(Get(s, "timer") as JsonObject, "phase") ?? "";
+
+            // Use the version of each champion this champ select offers: the League Classic one in
+            // League Classic, the normal one everywhere else.
+            picks = picks.Select(x =>
+            {
+                var id = ForThisQueue(Num(x, "championId"), p.Pickable);
+                if (id == Num(x, "championId")) return x;
+                var copy = Merge(x, new JsonObject());
+                copy["championId"] = id;
+                return copy;
+            }).ToList();
+            bans = bans.Select(x => ForThisQueue(x, p.Bannable)).ToList();
 
             // Champions that can't be picked or banned anymore.
             var banned = new HashSet<long>(actions.Where(a => Str(a, "type") == "ban" && Bool(a, "completed")).Select(a => Num(a, "championId")));
@@ -452,7 +483,7 @@ namespace Conduit
             var myBan = actions.FirstOrDefault(a => Str(a, "type") == "ban" && Num(a, "actorCellId") == me && !Bool(a, "completed") && Bool(a, "isInProgress"));
             if (myBan != null && phase != "PLANNING" && !p.BanStoodDown && bans.Count > 0)
             {
-                await Ban(s, p, myBan, bans, canBan, delay, roleName);
+                await Ban(s, p, myBan, bans, canBan, delay, banRoleName);
                 return;
             }
 
@@ -460,7 +491,7 @@ namespace Conduit
             var myPick = actions.FirstOrDefault(a => Str(a, "type") == "pick" && Num(a, "actorCellId") == me && !Bool(a, "completed"));
             if (myPick != null && !p.PickStoodDown && picks.Count > 0)
             {
-                await Pick(s, p, myPick, picks, canPick, phase, delay, roleName);
+                await Pick(s, p, myPick, picks, canPick, phase, delay, pickRoleName);
                 return;
             }
 
@@ -652,8 +683,10 @@ namespace Conduit
                 else problems.Add("the League client refused the spells" + Describe(result));
             }
 
+            // Skin ids are the champion id followed by three digits, so a skin chosen for the normal
+            // version of a champion doesn't fit its League Classic version.
             var skin = Num(entry, "skinId");
-            if (skin > 0)
+            if (skin > 0 && skin / 1000 == championId)
             {
                 var result = await api.Request("PATCH", "/lol-champ-select/v1/session/my-selection", "{\"selectedSkinId\":" + skin + "}");
                 if (result.Ok) done.Add("skin");
@@ -820,8 +853,19 @@ namespace Conduit
         private string Name(long championId)
         {
             string name;
-            if (championNames != null && championNames.TryGetValue(championId, out name) && !string.IsNullOrEmpty(name)) return name;
+            var classic = championId >= CLASSIC_OFFSET ? " (Classic)" : "";
+            if (championNames != null && championNames.TryGetValue(championId, out name) && !string.IsNullOrEmpty(name)) return name + classic;
             return "champion " + championId;
+        }
+
+        /**
+         * Returns the champion, or its League Classic (or normal) version if only that one is offered.
+         */
+        private static long ForThisQueue(long championId, HashSet<long> offered)
+        {
+            if (offered == null || offered.Contains(championId)) return championId;
+            var twin = championId >= CLASSIC_OFFSET ? championId - CLASSIC_OFFSET : championId + CLASSIC_OFFSET;
+            return offered.Contains(twin) ? twin : championId;
         }
 
         /**

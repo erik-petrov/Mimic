@@ -9,7 +9,8 @@
             <div class="content" v-if="view === 'roles'">
                 <div class="note">
                     Autopick runs on your PC and uses the setup for the role League gives you.
-                    It switches itself off when the game starts.
+                    All roles fills in for any role without its own picks or bans, and is used in
+                    queues without roles. Autopick switches itself off when the game starts.
                 </div>
 
                 <div class="row role" v-for="r in roleList" :key="r.key" @click="openRole(r.key)">
@@ -58,6 +59,12 @@
                     <span>{{ currentRole.bans.length ? "Add a backup ban" : "Add a ban" }}</span>
                 </div>
 
+                <div class="note" v-if="role === 'any'">
+                    These are used for every role that has no picks or no bans of its own.
+                </div>
+                <div class="note" v-else-if="!currentRole.picks.length || !currentRole.bans.length">
+                    Whatever is empty here comes from All roles.
+                </div>
                 <div class="note">
                     Autopick skips champions that are banned, taken, or wanted by a teammate, and tries the next one.
                 </div>
@@ -119,7 +126,16 @@
                 <lcu-button class="remove-pick" type="deny" @click="removePick(pickIndex)">Remove</lcu-button>
             </div>
 
-            <champion-grid v-else-if="view === 'champion'" :champions="gridChampions" :selected="gridSelected" @select="chooseChampion($event)"></champion-grid>
+            <template v-else-if="view === 'champion'">
+                <div class="classic-toggle" :class="{ on: showClassic }" @click="toggleClassic()">
+                    <div class="text">
+                        <span class="label">League Classic champions</span>
+                        <span class="detail">In League Classic, autopick uses the Classic version by itself</span>
+                    </div>
+                    <div class="switch"><div class="knob"></div></div>
+                </div>
+                <champion-grid :champions="gridChampions" :selected="gridSelected" @select="chooseChampion($event)"></champion-grid>
+            </template>
 
             <div class="content" v-else-if="view === 'skin'">
                 <div class="option skin-none" :class="{ selected: !currentPick.skinId }" @click="chooseSkin(0)">
@@ -162,6 +178,14 @@
     body.has-notch .autopick-setup
         padding-top calc(env(safe-area-inset-top) + 25px)
         padding-bottom calc(env(safe-area-inset-bottom) + 14px)
+
+    // While searching, start below the queue bar (200px and its 3px border), which covers the top.
+    body.in-queue .autopick-setup
+        top 203px
+
+    body.has-notch.in-queue .autopick-setup
+        top calc(203px + env(safe-area-inset-top) + 30px)
+        padding-top 0
 </style>
 
 <style lang="stylus" scoped>
@@ -375,4 +399,57 @@
 
     .remove-pick
         margin 40px 20px 20px 20px
+
+    .classic-toggle
+        display flex
+        align-items center
+        justify-content space-between
+        margin 20px 20px 0 20px
+        padding 12px 20px
+        background-color rgba(30, 35, 40, 0.85)
+        border 2px solid #785a28
+
+        .text
+            display flex
+            flex-direction column
+            min-width 0
+
+        .label
+            font-size 38px
+
+        .detail
+            font-size 28px
+            color #a09b8c
+
+        .switch
+            flex-shrink 0
+            position relative
+            margin-left 20px
+            width 110px
+            height 56px
+            border-radius 28px
+            background-color #1e2328
+            border 2px solid #785a28
+            transition 0.2s ease
+
+        .knob
+            position absolute
+            top 5px
+            left 5px
+            width 42px
+            height 42px
+            border-radius 50%
+            background-color #a09b8c
+            transition 0.2s ease
+
+        &.on
+            border-color #c89c3c
+
+            .switch
+                background-color #785a28
+                border-color #c89c3c
+
+            .knob
+                left 61px
+                background-color #f0e6d2
 </style>

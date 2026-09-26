@@ -30,6 +30,13 @@
     and fetches the recommended pages directly. Pick or hover a champion first.
     Writes autorunes-test.json and recommended-pages.json.
 
+.PARAMETER Lobby
+    Instead of the full API reference, saves what Mimic needs for game modes, roles and
+    champion lists into lobby\: every queue and whether you can join it, the platform
+    config, the lobby, your champions, and the settings where the client may keep your
+    roles. Combine with -Record, then create a lobby, change your roles and start and
+    cancel a search in the client, to show where the client keeps your roles.
+
 .PARAMETER OutDir
     Where to write the dump. Defaults to .\lcu-dump-<date>-<time>.
 
@@ -49,11 +56,15 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\lcu-dump.ps1 -TestAutoRunes
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\lcu-dump.ps1 -Lobby -Record
 #>
 [CmdletBinding()]
 param(
     [switch]$Record,
     [switch]$TestAutoRunes,
+    [switch]$Lobby,
     [string]$OutDir,
     [string]$LockfilePath,
     [string[]]$ExcludePrefix = @("/lol-chat/", "/riot-messaging-service/", "/lol-hovercard/", "/lol-game-client-chat/")
@@ -218,10 +229,10 @@ function Invoke-Lcu([string]$path, [string]$method = "GET") {
     return [LcuHelper]::Request($method, "https://127.0.0.1:$($script:Creds.Port)$path", $script:Auth)
 }
 
-function Save-Endpoint([string]$path, [string]$file) {
-    $label = "{0,-45}" -f $path
+function Save-Endpoint([string]$path, [string]$file, [string]$method = "GET") {
+    $label = "{0,-45}" -f $(if ($method -eq "GET") { $path } else { "$method $path" })
     try {
-        $res = Invoke-Lcu $path
+        $res = Invoke-Lcu $path $method
     } catch {
         Write-Host "  $label failed: $($_.Exception.Message)" -ForegroundColor Red
         return @{ path = $path; status = 0; error = $_.Exception.Message }
@@ -362,6 +373,41 @@ function Start-Recording([string]$dir) {
     }
 }
 
+function Save-LobbyData([string]$dir) {
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $summoner = (Get-LcuJson "/lol-summoner/v1/current-summoner").data
+    $summonerId = if ($summoner) { $summoner.summonerId } else { 0 }
+
+    $paths = @(
+        "/lol-game-queues/v1/queues",
+        "/lol-game-queues/v1/matchmaking-queues",
+        "/lol-game-data/assets/v1/queues.json",
+        "/lol-platform-config/v1/namespaces",
+        "/lol-lobby/v2/lobby",
+        "/lol-lobby/v1/parties/gamemode",
+        "/lol-lobby/v1/lobby/availability",
+        "/lol-lobby/v2/party-active",
+        "/lol-gameflow/v1/availability",
+        "/lol-champions/v1/owned-champions-minimal",
+        "/lol-champions/v1/inventories/$summonerId/champions-minimal",
+        "/lol-game-data/assets/v1/champion-summary.json"
+    )
+    # Where the client may keep the roles you picked last time.
+    foreach ($category in @("lol-parties", "lol-lobby", "lol-gameflow", "lol-game-select", "lol-matchmaking", "lol-champ-select", "lol-user-experience")) {
+        $paths += "/lol-settings/v2/account/LCUPreferences/$category"
+        $paths += "/lol-settings/v1/account/$category"
+    }
+
+    foreach ($path in $paths) {
+        $name = ($path.TrimStart("/") -replace "[/\\?:*]", "_") + ".json"
+        Save-Endpoint $path (Join-Path $dir $name) | Out-Null
+    }
+
+    # Which queues you can join right now, and why not.
+    Save-Endpoint "/lol-lobby/v2/eligibility/self" (Join-Path $dir "lol-lobby_v2_eligibility_self.json") "POST" | Out-Null
+    Save-Endpoint "/lol-lobby/v2/eligibility/party" (Join-Path $dir "lol-lobby_v2_eligibility_party.json") "POST" | Out-Null
+}
+
 function Get-LcuJson([string]$path, [string]$method = "GET") {
     $res = Invoke-Lcu $path $method
     $parsed = $null
@@ -492,6 +538,20 @@ if ($TestAutoRunes) {
     Write-Host "Done. Send autorunes-test.json from $OutDir" -ForegroundColor Cyan
     return
 }
+if ($Lobby) {
+    Write-Host ""
+    Write-Host "Game modes, roles and champions:"
+    Save-LobbyData (Join-Path $OutDir "lobby")
+    if ($Record) {
+        Write-Host ""
+        Write-Host "Now create a lobby in the client, change your roles, and start and cancel a search." -ForegroundColor Yellow
+        Start-Recording $OutDir
+    }
+    Write-Host ""
+    Write-Host "Done. Zip $OutDir and send it." -ForegroundColor Cyan
+    return
+}
+
 Write-Host ""
 Write-Host "API reference:"
 

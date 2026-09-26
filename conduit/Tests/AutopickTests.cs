@@ -20,6 +20,9 @@ namespace Conduit.Tests
         public long CurrentPage;
         public bool RefuseTemporaryPages;
         public bool DropRunes;
+
+        // Champions this champ select offers. Normal champions unless a test changes it.
+        public long[] Offered = NAMES.Keys.ToArray();
         private long nextPageId = 1000;
 
         public static readonly Dictionary<long, string> NAMES = new Dictionary<long, string>
@@ -67,17 +70,21 @@ namespace Conduit.Tests
 
         private ApiResult Handle(string method, string path, string body)
         {
-            if (method == "GET" && path == "/lol-champ-select/v1/pickable-champion-ids") return Ok(Arr(NAMES.Keys.ToArray()));
-            if (method == "GET" && path == "/lol-champ-select/v1/bannable-champion-ids") return Ok(Arr(NAMES.Keys.ToArray()));
+            if (method == "GET" && path == "/lol-champ-select/v1/pickable-champion-ids") return Ok(Arr(Offered));
+            if (method == "GET" && path == "/lol-champ-select/v1/bannable-champion-ids") return Ok(Arr(Offered));
             if (method == "GET" && path == "/lol-game-data/assets/v1/champion-summary.json")
             {
                 var list = new JsonArray();
+                // League Classic champions have the same names, with 60000 added to the id.
                 foreach (var entry in NAMES)
                 {
-                    var champion = new JsonObject();
-                    champion["id"] = entry.Key;
-                    champion["name"] = entry.Value;
-                    list.Add(champion);
+                    foreach (var id in new[] { entry.Key, entry.Key + 60000 })
+                    {
+                        var champion = new JsonObject();
+                        champion["id"] = id;
+                        champion["name"] = entry.Value;
+                        list.Add(champion);
+                    }
                 }
                 return Ok(list);
             }
@@ -363,6 +370,14 @@ namespace Conduit.Tests
         static int failures;
         static int? serverDelay;
 
+        // Every status autopick showed in the current scenario, since later ones replace earlier ones quickly.
+        static List<string> history = new List<string>();
+
+        static bool Saw(string status)
+        {
+            lock (history) return history.Contains(status);
+        }
+
         static JsonObject Setup(string role, string picksJson, string bansJson)
         {
             return (JsonObject) SimpleJson.DeserializeObject("{\"" + role + "\":{\"picks\":" + picksJson + ",\"bans\":" + bansJson + "}}");
@@ -374,6 +389,8 @@ namespace Conduit.Tests
             var client = new FakeClient();
             var engine = new Autopick(client, null, null, () => Task.FromResult(serverDelay), null);
             client.Engine = engine;
+            lock (history) history.Clear();
+            engine.OnChanged += () => { lock (history) history.Add(engine.Status); };
             engine.SetRoles(setup);
             if (enable) engine.SetEnabled(true);
 
@@ -435,11 +452,11 @@ namespace Conduit.Tests
                 c.Session = FakeClient.NewSession("a", true);
                 c.Publish();
                 WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":64}"), "hover Lee Sin");
-                WaitFor(() => e.Status == "Hovering Lee Sin. Autopick locks it in on your turn.", "hover status");
+                WaitFor(() => Saw("Hovering Lee Sin. Autopick locks it in on your turn."), "hover status");
 
                 c.StartBans();
                 WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/1 {\"championId\":157,\"completed\":true}"), "ban Yasuo");
-                WaitFor(() => e.Status == "Banned Yasuo.", "ban status");
+                WaitFor(() => Saw("Banned Yasuo."), "ban status");
 
                 c.OthersBan(0, 29, 5, 32);
                 c.OtherPicks(10, 875);
@@ -585,11 +602,67 @@ namespace Conduit.Tests
                 True(!c.Writes().Any(x => x.Contains("\"championId\":157")), "no ban");
             });
 
+            Scenario("League Classic: picks and bans the Classic versions, and leaves out a skin that doesn't fit", Setup("jungle", LEE_FULL, "[157]"), (c, e) =>
+            {
+                c.Offered = FakeClient.NAMES.Keys.Select(x => x + 60000).ToArray();
+                c.Session = FakeClient.NewSession("a", true);
+                c.Publish();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":60064}"), "hover Classic Lee Sin");
+                WaitFor(() => Saw("Hovering Lee Sin (Classic). Autopick locks it in on your turn."), "status");
+                c.StartBans();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/1 {\"championId\":60157,\"completed\":true}"), "ban Classic Yasuo");
+                c.StartTurn(13);
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":60064,\"completed\":true}"), "lock in Classic Lee Sin");
+                WaitFor(() => e.Status.StartsWith("Lee Sin (Classic): "), "extras");
+                True(Wrote(c, "PATCH /lol-champ-select/v1/session/my-selection {\"spell1Id\":4,\"spell2Id\":11}"), "spells set");
+                True(!c.Writes().Any(x => x.Contains("selectedSkinId")), "no skin of normal Lee Sin");
+            });
+
+            Scenario("a League Classic champion in the setup: its normal version in normal queues", Setup("jungle", "[{\"championId\":60091}]", "[]"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true);
+                c.StartBans();
+                c.StartTurn(13);
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":91,\"completed\":true}"), "lock in Talon");
+            });
+
+            Scenario("filled into a role with nothing set up: uses All roles for picks and bans", Setup("any", LEE_FULL, "[157]"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true);
+                c.Publish();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":64}"), "hover Lee Sin");
+                c.StartBans();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/1 {\"championId\":157,\"completed\":true}"), "ban Yasuo");
+                c.StartTurn(13);
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":64,\"completed\":true}"), "lock in Lee Sin");
+            });
+
+            var mixed = Setup("jungle", "[{\"championId\":91}]", "[]");
+            mixed["any"] = Setup("any", LEE_FULL, "[238]")["any"];
+            Scenario("a role with picks but no bans: its own picks, the bans of All roles", mixed, (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", true);
+                c.Publish();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":91}"), "hover Talon");
+                c.StartBans();
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/1 {\"championId\":238,\"completed\":true}"), "ban Zed");
+                c.StartTurn(13);
+                WaitFor(() => Wrote(c, "PATCH /lol-champ-select/v1/session/actions/13 {\"championId\":91,\"completed\":true}"), "lock in Talon");
+                True(!c.Writes().Any(x => x.Contains("\"championId\":64")), "never used the All roles picks");
+            });
+
+            Scenario("nothing set up anywhere: says so", Setup("jungle", "[]", "[]"), (c, e) =>
+            {
+                c.Session = FakeClient.NewSession("a", false);
+                c.Publish();
+                WaitFor(() => e.Status == "Autopick has nothing set up for All roles.", "status");
+            });
+
             Scenario("a role without a setup: says so and does nothing", Setup("top", LEE_FULL, "[]"), (c, e) =>
             {
                 c.Session = FakeClient.NewSession("a", true);
                 c.Publish();
-                WaitFor(() => e.Status == "Autopick has nothing set up for Jungle.", "status");
+                WaitFor(() => e.Status == "Autopick has nothing set up for Jungle or All roles.", "status");
                 Settle(e);
                 Equal(0, c.Writes().Count, "writes");
             });

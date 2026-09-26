@@ -23,6 +23,7 @@ interface ChampionSummary {
 
 interface OwnedChampion {
     id: number;
+    name: string;
     freeToPlay: boolean;
     ownership: { owned: boolean, rental: { rented: boolean } };
 }
@@ -60,6 +61,11 @@ interface RunePageSummary {
 }
 
 type View = "roles" | "role" | "pick" | "champion" | "skin" | "spell" | "custom-runes";
+
+// League Classic champions are the same champions with this added to their id. Only League Classic
+// offers them; autopick uses the Classic version there by itself.
+const CLASSIC_OFFSET = 60000;
+const SHOW_CLASSIC_KEY = "autopick-show-classic";
 
 // Where a new custom rune page starts: Precision and Domination, with the usual stat shards.
 const NEW_CUSTOM_RUNES = { primaryStyleId: 8000, subStyleId: 8100, selectedPerkIds: [0, 0, 0, 0, 0, 0, 5008, 5008, 5001] };
@@ -100,6 +106,9 @@ export default class AutopickSetup extends Vue {
     pages: RunePageSummary[] = [];
     summonerId = 0;
 
+    // Whether the champion grid also lists League Classic champions. Remembered on this phone.
+    showClassic = readShowClassic();
+
     skins: SkinOption[] = [];
     skinsFor = 0;
     loadingSkins = false;
@@ -135,7 +144,13 @@ export default class AutopickSetup extends Vue {
             this.$root.request("/lol-summoner/v1/current-summoner")
         ]);
 
-        if (isList(summary)) this.champions = summary.content.filter((x: ChampionSummary) => x.id > 0);
+        // Every champion, for bans and names. Both lists have names; either one may be missing.
+        const names: { [id: number]: string } = {};
+        [summary, owned].filter(isList).forEach(result => result.content.forEach((x: ChampionSummary) => {
+            if (x && x.id > 0 && typeof x.name === "string" && x.name) names[x.id] = x.name;
+        }));
+        this.champions = Object.keys(names).map(id => ({ id: +id, name: names[+id] + (+id >= CLASSIC_OFFSET ? " (Classic)" : "") }));
+
         if (isList(owned)) {
             this.pickable = owned.content
                 .filter((x: OwnedChampion) => x.ownership && (x.ownership.owned || (x.ownership.rental && x.ownership.rental.rented)) || x.freeToPlay)
@@ -172,8 +187,19 @@ export default class AutopickSetup extends Vue {
      * @returns the champions the grid shows: every champion for bans, the ones we can play for picks
      */
     get gridChampions(): GridEntry[] {
-        if (this.choosing === "ban" || !this.pickable.length) return this.champions;
-        return this.pickable.map(id => ({ id, name: this.championName(id) }));
+        const list = this.choosing === "ban" || !this.pickable.length
+            ? this.champions
+            : this.pickable.map(id => ({ id, name: this.championName(id) }));
+        return this.showClassic ? list : list.filter(x => x.id < CLASSIC_OFFSET);
+    }
+
+    toggleClassic() {
+        this.showClassic = !this.showClassic;
+        try {
+            localStorage.setItem(SHOW_CLASSIC_KEY, this.showClassic ? "1" : "0");
+        } catch (e) {
+            // Private mode: the toggle just isn't remembered.
+        }
     }
 
     get gridSelected(): number {
@@ -182,7 +208,7 @@ export default class AutopickSetup extends Vue {
     }
 
     /**
-     * @returns the spells for the current role: Summoner's Rift ones, plus ARAM ones for "Any role"
+     * @returns the spells for the current role: Summoner's Rift ones, plus ARAM ones for All roles
      */
     get availableSpells(): Spell[] {
         const modes = this.role === "any" ? ["CLASSIC", "ARAM"] : ["CLASSIC"];
@@ -442,6 +468,14 @@ export default class AutopickSetup extends Vue {
 
     roleIcon(role: Role): string {
         return roleImage(role);
+    }
+}
+
+function readShowClassic(): boolean {
+    try {
+        return localStorage.getItem(SHOW_CLASSIC_KEY) === "1";
+    } catch (e) {
+        return false;
     }
 }
 

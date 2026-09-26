@@ -5,7 +5,8 @@
         <div class="content">
             <a class="champion-option" v-for="champion in shownChampions" :key="champion.id">
                 <img @click="$emit('select', champion.id)" :class="selected === champion.id && 'selected'" :src="icon(champion.id)">
-                <div class="name">{{ champion.name }}</div>
+                <div class="name">{{ shortName(champion) }}</div>
+                <div class="tag" v-if="isClassic(champion)">Classic</div>
             </a>
         </div>
     </div>
@@ -39,6 +40,13 @@
 
         &:active
             opacity 0.7
+
+        .tag
+            margin-top -5px
+            font-size 26px
+            color #c8aa6e
+            text-transform uppercase
+            letter-spacing 0.05em
 
         .name
             color #f0e6d3

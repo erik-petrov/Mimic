@@ -9,14 +9,15 @@ export const MAX_BANS = 2;
 
 export type AutopickRole = "top" | "jungle" | "middle" | "bottom" | "utility" | "any";
 
-// The roles in the setup, with the lobby's role icons. "any" is for queues without roles.
+// The roles in the setup, with the lobby's role icons. "any" (All roles) is not a role: it fills
+// in for any role without its own picks or bans, and is used in queues without roles.
 export const AUTOPICK_ROLES: { key: AutopickRole, name: string, icon: Role }[] = [
+    { key: "any", name: "All roles", icon: "FILL" },
     { key: "top", name: "Top", icon: "TOP" },
     { key: "jungle", name: "Jungle", icon: "JUNGLE" },
     { key: "middle", name: "Mid", icon: "MIDDLE" },
     { key: "bottom", name: "Bot", icon: "BOTTOM" },
-    { key: "utility", name: "Support", icon: "UTILITY" },
-    { key: "any", name: "Any role", icon: "FILL" }
+    { key: "utility", name: "Support", icon: "UTILITY" }
 ];
 
 export interface AutopickRunes {
